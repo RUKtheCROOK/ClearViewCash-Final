@@ -46,3 +46,8 @@ pnpm-debug.log*
 .eas-build-local
 
 tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+.vercel
+.cache
+.nyc_output
