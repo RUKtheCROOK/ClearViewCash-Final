@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "moduleResolution": "Bundler",
+    "module": "ESNext",
+    "types": [
+      "expo",
+      "node"
+    ]
+  },
+  "include": [
+    "app/**/*",
+    "components/**/*",
+    "hooks/**/*",
+    "lib/**/*",
+    "app.config.ts",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ]
+}

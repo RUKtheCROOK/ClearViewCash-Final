@@ -1,0 +1,32 @@
+{
+  "name": "clearviewcash",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "mobile": "pnpm --filter mobile dev",
+    "web": "pnpm --filter web dev",
+    "supabase:start": "supabase start",
+    "supabase:reset": "supabase db reset",
+    "supabase:migrate": "supabase migration up",
+    "supabase:test": "supabase test db",
+    "supabase:gen-types": "supabase gen types typescript --linked > packages/types/src/supabase.generated.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.20.0",
+    "pg": "^8.20.0",
+    "prettier": "^3.3.3",
+    "turbo": "^2.3.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

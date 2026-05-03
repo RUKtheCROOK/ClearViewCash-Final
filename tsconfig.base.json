@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "incremental": true,
+    "verbatimModuleSyntax": false,
+    "paths": {
+      "@cvc/types": ["./packages/types/src"],
+      "@cvc/types/*": ["./packages/types/src/*"],
+      "@cvc/domain": ["./packages/domain/src"],
+      "@cvc/domain/*": ["./packages/domain/src/*"],
+      "@cvc/api-client": ["./packages/api-client/src"],
+      "@cvc/api-client/*": ["./packages/api-client/src/*"],
+      "@cvc/ui": ["./packages/ui/src"],
+      "@cvc/ui/*": ["./packages/ui/src/*"]
+    }
+  }
+}

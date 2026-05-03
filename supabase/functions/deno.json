@@ -1,0 +1,11 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2.46.1",
+    "plaid": "npm:plaid@^29.0.0",
+    "stripe": "npm:stripe@^17.4.0",
+    "zod": "npm:zod@^3.23.8"
+  },
+  "tasks": {
+    "serve": "supabase functions serve --no-verify-jwt"
+  }
+}

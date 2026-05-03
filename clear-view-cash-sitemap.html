@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Clear View Cash · Site Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F5F1E8;
+    --bg-deep: #EDE6D3;
+    --ink: #1A1F1C;
+    --ink-soft: #4A5249;
+    --primary: #0F3D3E;
+    --primary-soft: #1A5453;
+    --accent: #B85420;
+    --accent-soft: #D97742;
+    --line: #C9BFA7;
+    --line-soft: #DDD3BC;
+    --paper: #FBF8F1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Geist', -apple-system, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.35;
+    z-index: 1000;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+
+  /* HEADER */
+  header.masthead {
+    border-bottom: 2px solid var(--ink);
+    padding: 48px 0 32px;
+    background: var(--bg);
+    position: relative;
+  }
+  header.masthead::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    bottom: -8px;
+    height: 2px;
+    background: var(--ink);
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .eyebrow span:last-child { color: var(--ink-soft); }
+  h1.title {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: clamp(48px, 7vw, 96px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+    font-variation-settings: 'opsz' 144, 'SOFT' 50;
+  }
+  h1.title em {
+    font-style: italic;
+    font-weight: 300;
+    color: var(--primary);
+  }
+  .subtitle {
+    margin-top: 28px;
+    font-size: 19px;
+    max-width: 780px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+  .meta-row {
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .meta-row .label {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+    font-size: 10px;
+    margin-bottom: 6px;
+  }
+  .meta-row .value { color: var(--ink); font-weight: 500; }
+
+  /* SECTIONS */
+  section { padding: 80px 0; border-bottom: 1px solid var(--line); }
+  section:last-of-type { border-bottom: none; }
+
+  .section-head {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 32px;
+    margin-bottom: 48px;
+    align-items: baseline;
+  }
+  .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+  h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: clamp(32px, 4.5vw, 52px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  h2 em { font-style: italic; font-weight: 400; color: var(--primary); }
+  .section-intro {
+    grid-column: 2;
+    margin-top: 16px;
+    color: var(--ink-soft);
+    font-size: 17px;
+    max-width: 720px;
+  }
+
+  /* CONCEPT DIAGRAM */
+  .concept {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 48px;
+    border-radius: 2px;
+    position: relative;
+  }
+  .concept-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    align-items: stretch;
+  }
+  .user-card {
+    border: 1px solid var(--line);
+    padding: 28px;
+    background: var(--bg);
+    border-radius: 2px;
+    position: relative;
+  }
+  .user-card .who {
+    font-family: 'Fraunces', serif;
+    font-size: 22px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--primary);
+  }
+  .user-card .who em { font-style: italic; }
+  .user-card .accounts {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    line-height: 1.9;
+  }
+  .user-card .accounts li {
+    list-style: none;
+    padding-left: 16px;
+    position: relative;
+  }
+  .user-card .accounts li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+  }
+  .user-card .accounts li.shared::before { content: '⇄'; color: var(--primary); }
+  .shared-bar {
+    margin-top: 32px;
+    padding: 20px 28px;
+    background: var(--primary);
+    color: var(--paper);
+    border-radius: 2px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .shared-bar .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    opacity: 0.7;
+  }
+  .shared-bar .desc {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 18px;
+  }
+
+  /* TREE / NAV STRUCTURE */
+  .tree {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 40px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 2.1;
+    color: var(--ink);
+    overflow-x: auto;
+  }
+  .tree .root {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .tree .branch { color: var(--primary); font-weight: 500; }
+  .tree .leaf { color: var(--ink-soft); }
+  .tree .annotation {
+    color: var(--ink-soft);
+    opacity: 0.65;
+    font-style: italic;
+  }
+  .tree .v2 {
+    color: var(--accent);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding-left: 8px;
+  }
+
+  /* PAGES BREAKDOWN */
+  .pages {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .page-card {
+    background: var(--paper);
+    padding: 32px;
+    position: relative;
+  }
+  .page-card .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+  }
+  .page-card h3 {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 26px;
+    line-height: 1.1;
+    color: var(--ink);
+    margin-bottom: 16px;
+    letter-spacing: -0.01em;
+  }
+  .page-card h3 em { font-style: italic; color: var(--primary); }
+  .page-card p {
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    margin-bottom: 18px;
+    line-height: 1.55;
+  }
+  .features {
+    border-top: 1px solid var(--line-soft);
+    padding-top: 16px;
+  }
+  .features .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .features ul { list-style: none; }
+  .features li {
+    font-size: 13.5px;
+    color: var(--ink);
+    padding: 4px 0;
+    padding-left: 18px;
+    position: relative;
+    line-height: 1.45;
+  }
+  .features li::before {
+    content: '·';
+    position: absolute;
+    left: 4px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* FLOWS */
+  .flows {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .flow {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 36px;
+  }
+  .flow-title {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--primary);
+    margin-bottom: 8px;
+  }
+  .flow-title em { font-style: italic; }
+  .flow-desc {
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    margin-bottom: 24px;
+  }
+  .flow-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    align-items: stretch;
+  }
+  .flow-step {
+    flex: 1 1 160px;
+    min-width: 160px;
+    padding: 16px 20px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    margin-right: 12px;
+    margin-bottom: 12px;
+    position: relative;
+    font-size: 13.5px;
+    line-height: 1.4;
+  }
+  .flow-step .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--accent);
+    margin-bottom: 6px;
+    letter-spacing: 0.1em;
+  }
+  .flow-step strong {
+    display: block;
+    color: var(--ink);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .flow-step span { color: var(--ink-soft); font-size: 12.5px; }
+
+  /* TIERS */
+  .tiers {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .tier {
+    background: var(--paper);
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+  }
+  .tier.featured {
+    background: var(--primary);
+    color: var(--paper);
+  }
+  .tier.featured .tier-name,
+  .tier.featured .price,
+  .tier.featured ul li { color: var(--paper); }
+  .tier-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .tier h3 {
+    font-family: 'Fraunces', serif;
+    font-size: 28px;
+    font-weight: 500;
+    margin-bottom: 4px;
+    line-height: 1.1;
+  }
+  .price {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--ink-soft);
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .tier.featured .price { border-bottom-color: rgba(255,255,255,0.2); }
+  .tier ul { list-style: none; flex: 1; }
+  .tier ul li {
+    font-size: 13.5px;
+    padding: 6px 0 6px 18px;
+    position: relative;
+    line-height: 1.4;
+    color: var(--ink-soft);
+  }
+  .tier ul li::before {
+    content: '+';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .tier.v2-tier {
+    opacity: 0.65;
+    background: var(--bg-deep);
+  }
+  .tier.v2-tier .tier-name { color: var(--ink-soft); }
+
+  /* ROADMAP */
+  .roadmap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .phase {
+    background: var(--paper);
+    padding: 36px;
+  }
+  .phase-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .phase h3 {
+    font-family: 'Fraunces', serif;
+    font-size: 28px;
+    font-weight: 500;
+    margin-bottom: 20px;
+    color: var(--primary);
+  }
+  .phase ul { list-style: none; }
+  .phase ul li {
+    padding: 8px 0 8px 20px;
+    position: relative;
+    font-size: 14.5px;
+    color: var(--ink);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .phase ul li:last-child { border-bottom: none; }
+  .phase ul li::before {
+    content: '◆';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-size: 9px;
+    top: 14px;
+  }
+
+  /* FOOTER */
+  footer {
+    padding: 48px 0;
+    border-top: 2px solid var(--ink);
+    background: var(--bg-deep);
+  }
+  footer .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-soft);
+  }
+
+  /* RESPONSIVE */
+  @media (max-width: 768px) {
+    .container { padding: 0 20px; }
+    section { padding: 56px 0; }
+    .section-head { grid-template-columns: 1fr; gap: 8px; }
+    .section-intro { grid-column: 1; }
+    .concept-grid { grid-template-columns: 1fr; }
+    .concept { padding: 28px; }
+    .roadmap { grid-template-columns: 1fr; }
+    .tree { padding: 24px; font-size: 12px; }
+    .page-card { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="container">
+    <div class="eyebrow">
+      <span>Information Architecture · Site Map · v1.0</span>
+      <span>Document № 001</span>
+    </div>
+    <h1 class="title">Clear View<br><em>Cash.</em></h1>
+    <p class="subtitle">A shared financial visibility platform for couples, households, and (later) businesses. Each user owns their accounts; <em>spaces</em> let them choose what to share, with full account- and transaction-level control.</p>
+    <div class="meta-row">
+      <div><div class="label">Platforms</div><div class="value">Web · iOS · Android</div></div>
+      <div><div class="label">Core Integration</div><div class="value">Plaid (v1) · QuickBooks (v2)</div></div>
+      <div><div class="label">Primary Audience</div><div class="value">Couples & Households</div></div>
+      <div><div class="label">Architecture</div><div class="value">Multi-Space, Per-User Accounts</div></div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ CORE CONCEPT ============ -->
+<section>
+  <div class="container">
+    <div class="section-head">
+      <div class="section-num">§ 01</div>
+      <div>
+        <h2>The <em>Spaces</em> Model</h2>
+        <p class="section-intro">Every user owns their own accounts. They join (or create) Spaces with other people, then independently decide which accounts and transactions to share inside that space. A space switcher in the header lets users move between contexts seamlessly.</p>
+      </div>
+    </div>
+
+    <div class="concept">
+      <div class="concept-grid">
+        <div class="user-card">
+          <div class="who">User <em>A</em></div>
+          <ul class="accounts">
+            <li class="shared">Chase Checking · shared</li>
+            <li class="shared">Citi Card · shared</li>
+            <li>Personal Savings · private</li>
+            <li>Side-Project LLC · private</li>
+          </ul>
+        </div>
+        <div class="user-card">
+          <div class="who">User <em>B</em></div>
+          <ul class="accounts">
+            <li class="shared">Wells Checking · shared</li>
+            <li class="shared">Amex Card · shared</li>
+            <li>Roth IRA · private</li>
+            <li>Gift Fund · private</li>
+          </ul>
+        </div>
+      </div>
+      <div class="shared-bar">
+        <span class="label">Shared Space</span>
+        <span class="desc">"Household" — only the ⇄ items appear here.</span>
+        <span class="label">Toggle: My View ⇄ Shared View</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PAYMENT LINKS ============ -->
+<section>
+  <div class="container">
+    <div class="section-head">
+      <div class="section-num">§ 02</div>
+      <div>
+        <h2>Payment <em>Links</em></h2>
+        <p class="section-intro">A "Pays For" relationship between a funding account and one or more credit cards. The funding account's <em>effective available</em> = current balance minus the running total of all linked card balances. Updates in real time as transactions post — no waiting for statement close.</p>
+      </div>
+    </div>
+
+    <div class="concept">
+      <div class="concept-grid">
+        <div class="user-card">
+          <div class="who">Account <em>1</em> · Checking</div>
+          <ul class="accounts">
+            <li>Current Balance · $3,400</li>
+            <li class="shared">Pays → Card A · $1,200</li>
+            <li class="shared">Pays → Card B · $400</li>
+            <li style="color: var(--accent); font-weight: 600;">Effective Available · $1,800</li>
+          </ul>
+        </div>
+        <div class="user-card">
+          <div class="who">Account <em>2</em> · Checking</div>
+          <ul class="accounts">
+            <li>Current Balance · $2,100</li>
+            <li class="shared">Pays → Card C · $650</li>
+            <li>No other links</li>
+            <li style="color: var(--accent); font-weight: 600;">Effective Available · $1,450</li>
+          </ul>
+        </div>
+      </div>
+      <div class="shared-bar">
+        <span class="label">Per-Link Config</span>
+        <span class="desc">Each link: which account, which card(s), split %, space scope.</span>
+        <span class="label">Default · Single Space &nbsp;|&nbsp; Optional · Cross-Space</span>
+      </div>
+    </div>
+
+    <div style="margin-top: 32px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line);">
+      <div class="page-card">
+        <div class="num">RULE 01</div>
+        <h3>Optional, <em>Not Required</em></h3>
+        <p>Users without a clear funding-to-card relationship use the app the standard way. Payment Links are an opt-in power feature.</p>
+      </div>
+      <div class="page-card">
+        <div class="num">RULE 02</div>
+        <h3>Many <em>to</em> Many</h3>
+        <p>One account can pay multiple cards. One card can be paid by multiple accounts (with split percentages).</p>
+      </div>
+      <div class="page-card">
+        <div class="num">RULE 03</div>
+        <h3>Cross-Space <em>Aware</em></h3>
+        <p>Default scope is single-space. Users can explicitly enable cross-space linking when a personal account also funds household cards.</p>
+      </div>
+      <div class="page-card">
+        <div class="num">RULE 04</div>
+        <h3>Real-Time <em>Math</em></h3>
+        <p>Tracks current balance, not statement. The moment a charge posts, effective available drops. No surprises at statement close.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ NAVIGATION TREE ============ -->
+<section>
+  <div class="container">
+    <div class="section-head">
+      <div class="section-num">§ 03</div>
+      <div>
+        <h2>Navigation <em>Hierarchy</em></h2>
+        <p class="section-intro">Persistent top-level: space switcher, notification bell, settings gear. Eight primary tabs (seven on mobile, with one collapsed into a "More" menu).</p>
+      </div>
+    </div>
+
+    <div class="tree">
+<span class="root">CLEAR VIEW CASH</span>
+├── <span class="branch">[ Space Switcher ]</span>          <span class="annotation">// Personal · Household · Side-Project · + New</span>
+├── <span class="branch">[ 🔔 Notifications ]</span>         <span class="annotation">// inline bell, opens drawer w/ "Settings" link</span>
+├── <span class="branch">[ ⚙ Settings ]</span>               <span class="annotation">// gear icon, top-right</span>
+│
+├── <span class="branch">01 · Dashboard</span>               <span class="annotation">// home view of active space</span>
+│   ├── <span class="leaf">Net Worth Snapshot</span>         <span class="annotation">// expands to full page in v2</span>
+│   ├── <span class="leaf">Cash on Hand · Total Debt</span>
+│   ├── <span class="leaf">Upcoming Bills (7/30 day)</span>
+│   ├── <span class="leaf">Recent Transactions</span>
+│   ├── <span class="leaf">Budget Status</span>
+│   └── <span class="leaf">Goal Progress</span>
+│
+├── <span class="branch">02 · Transactions</span>
+│   ├── <span class="leaf">Filters: Pending · Completed · Account · Category · Person</span>
+│   ├── <span class="leaf">Per-Transaction: Share/Hide · Category · Notes · Split</span>
+│   └── <span class="leaf">Recurring Detection (suggests bills/income)</span>
+│
+├── <span class="branch">03 · Bills</span>
+│   ├── <span class="leaf">Calendar View · List View</span>
+│   ├── <span class="leaf">Recurring · One-Time</span>
+│   └── <span class="leaf">Status: Paid · Unpaid · Overdue · Autopay</span>
+│
+├── <span class="branch">04 · Income</span>
+│   ├── <span class="leaf">Recurring Income (paychecks)</span>
+│   ├── <span class="leaf">One-Time Income</span>
+│   └── <span class="leaf">Expected vs Received · Next Payday</span>
+│
+├── <span class="branch">05 · Cash Flow Forecast</span>
+│   ├── <span class="leaf">Projected Balance Timeline</span>
+│   ├── <span class="leaf">Bills + Income → Future Position</span>
+│   └── <span class="leaf">"What if" scenarios</span>
+│
+├── <span class="branch">06 · Budgets</span>
+│   ├── <span class="leaf">Categories · Monthly Limits</span>
+│   ├── <span class="leaf">Rollover Settings</span>
+│   └── <span class="leaf">Per-Space Budgets</span>
+│
+├── <span class="branch">07 · Goals</span>
+│   ├── <span class="leaf">Savings Goals</span>
+│   ├── <span class="leaf">Debt Payoff (with payoff date projections)</span>
+│   └── <span class="leaf">Progress Visualization</span>
+│
+├── <span class="branch">08 · Reports & Exports</span>
+│   ├── <span class="leaf">Cash Flow · Spending by Category · Net Worth Over Time</span>
+│   ├── <span class="leaf">Custom Date Ranges</span>
+│   ├── <span class="leaf">PDF · CSV Export</span>
+│   └── <span class="leaf">QuickBooks Sync Status</span><span class="v2">v2</span>
+│
+├── <span class="branch">09 · Accounts</span>
+│   ├── <span class="leaf">Linked via Plaid</span>
+│   ├── <span class="leaf">Per-Account: Balance · Sharing · Sync Status · Reconnect</span>
+│   ├── <span class="leaf">Payment Links · "Pays For" relationships</span>
+│   │   ├── <span class="leaf">Inline indicator on each card</span>
+│   │   ├── <span class="leaf">Effective Available calculation (live)</span>
+│   │   └── <span class="leaf">Per-link cross-space toggle</span>
+│   └── <span class="leaf">QuickBooks Connection</span><span class="v2">v2</span>
+│
+└── <span class="branch">10 · Settings</span>
+    ├── <span class="leaf">Profile</span>
+    ├── <span class="leaf">Spaces & Members</span>          <span class="annotation">// invite · permissions · sharing rules</span>
+    ├── <span class="leaf">Notifications</span>
+    ├── <span class="leaf">Security · 2FA · Biometrics</span>
+    ├── <span class="leaf">Subscription & Billing</span>
+    └── <span class="leaf">Connected Services</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PAGES BREAKDOWN ============ -->
+<section>
+  <div class="container">
+    <div class="section-head">
+      <div class="section-num">§ 04</div>
+      <div>
+        <h2>Page <em>Anatomy</em></h2>
+        <p class="section-intro">What lives on each primary screen. Every page respects the active space's "My View ⇄ Shared View" toggle.</p>
+      </div>
+    </div>
+
+    <div class="pages">
+
+      <div class="page-card">
+        <div class="num">01</div>
+        <h3>Dash<em>board</em></h3>
+        <p>The at-a-glance financial pulse for whichever space is active. First thing the user sees on open.</p>
+        <div class="features">
+          <div class="label">Key Modules</div>
+          <ul>
+            <li>Net worth snapshot card</li>
+            <li>Cash on hand · total debt</li>
+            <li>Effective available cash (live)</li>
+            <li>Funding coverage status</li>
+            <li>Upcoming bills (7d / 30d)</li>
+            <li>Recent transaction feed</li>
+            <li>Budget progress at a glance</li>
+            <li>Goal progress widgets</li>
+            <li>View toggle: Mine / Shared</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page-card">
+        <div class="num">02</div>
+        <h3>Trans<em>actions</em></h3>
+        <p>Unified ledger across all linked accounts. The most-used screen — must be fast and filterable.</p>
+        <div class="features">
+          <div class="label">Key Capabilities</div>
+          <ul>
+            <li>Pending vs. completed filter</li>
+            <li>Filter by account / category / person</li>
+            <li>Per-transaction share toggle</li>
+            <li>Edit category · add notes</li>
+            <li>Mark as recurring</li>
+            <li>Split transactions</li>
+            <li>Search</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page-card">
+        <div class="num">03</div>
+        <h3>Bills</h3>
+        <p>Every obligation in one place. Calendar and list views. Auto-detects recurring patterns from transactions.</p>
+        <div class="features">
+          <div class="label">Key Capabilities</div>
+          <ul>
+            <li>Calendar + list views</li>
+            <li>Recurring vs one-time</li>
+            <li>Paid / unpaid / overdue states</li>
+            <li>Autopay flag per bill</li>
+            <li>Pattern-detection suggestions</li>
+            <li>Linked to source transactions</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page-card">
+        <div class="num">04</div>
+        <h3>Income</h3>
+        <p>Mirror of Bills. Tracks expected income, recurring paychecks, and one-time deposits.</p>
+        <div class="features">
+          <div class="label">Key Capabilities</div>
+          <ul>
+            <li>Recurring income (paychecks)</li>
+            <li>One-time income</li>
+            <li>Expected vs. received</li>
+            <li>Next payday countdown</li>
+            <li>Income source breakdown</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page-card">
+        <div class="num">05</div>
+        <h3>Cash <em>Flow</em></h3>
+        <p>Differentiator feature. Projects your balance forward in time using known bills, income, and linked card payments.</p>
+        <div class="features">
+          <div class="label">Key Capabilities</div>
+          <ul>
+            <li>Projected balance timeline</li>
+            <li>Daily / weekly / monthly granularity</li>
+            <li>Per-account or aggregate</li>
+            <li>Models linked card payments as outflows</li>
+            <li>"What if" scenarios</li>
+            <li>Low-balance & coverage warnings</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page-card">
+        <div class="num">06</div>
+        <h3>Bud<em>gets</em></h3>
+        <p>Category-based monthly spending limits. Per-space, so household budgets are separate from personal.</p>
+        <div class="features">
+          <div class="label">Key Capabilities</div>
+          <ul>
+            <li>Categories with monthly caps</li>
+            <li>Progress bars · % spent</li>
+            <li>Rollover settings</li>
+            <li>Per-space budgets</li>
+            <li>Suggested categories from history</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page-card">
+        <div class="num">07</div>
+        <h3>Goals</h3>
+        <p>Savings targets and debt payoff plans, with date projections.</p>
+        <div class="features">
+          <div class="label">Key Capabilities</div>
+          <ul>
+            <li>Savings goals</li>
+            <li>Debt payoff goals</li>
+            <li>Payoff date projections</li>
+            <li>Per-space or per-user</li>
+            <li>Progress visualization</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page-card">
+        <div class="num">08</div>
+        <h3>Reports</h3>
+        <p>Deeper analysis and exports. Custom date ranges, multiple report types, downloadable.</p>
+        <div class="features">
+          <div class="label">Key Capabilities</div>
+          <ul>
+            <li>Cash flow report</li>
+            <li>Spending by category</li>
+            <li>Net worth over time</li>
+            <li>Custom date ranges</li>
+            <li>PDF / CSV export</li>
+            <li>QuickBooks sync (v2)</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page-card">
+        <div class="num">09</div>
+        <h3>Accounts</h3>
+        <p>Master list of every linked institution. Inline indicators show payment links between accounts and cards. Sharing settings live here too.</p>
+        <div class="features">
+          <div class="label">Key Capabilities</div>
+          <ul>
+            <li>Linked accounts (Plaid)</li>
+            <li>Balance · sync status</li>
+            <li>Effective available (with links)</li>
+            <li>Payment Links setup & edit</li>
+            <li>"Pays For" / "Paid By" indicators</li>
+            <li>Per-account share settings</li>
+            <li>Reconnect broken links</li>
+            <li>QuickBooks connection (v2)</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="page-card">
+        <div class="num">10</div>
+        <h3>Set<em>tings</em></h3>
+        <p>Profile, spaces management, security, subscription. Everything that's not day-to-day money work.</p>
+        <div class="features">
+          <div class="label">Sub-Pages</div>
+          <ul>
+            <li>Profile & account</li>
+            <li>Spaces & members</li>
+            <li>Notifications</li>
+            <li>Security · 2FA · biometrics</li>
+            <li>Subscription & billing</li>
+            <li>Connected services</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ KEY FLOWS ============ -->
+<section>
+  <div class="container">
+    <div class="section-head">
+      <div class="section-num">§ 05</div>
+      <div>
+        <h2>Key User <em>Flows</em></h2>
+        <p class="section-intro">The three flows that define the experience. Get these right and the rest follows.</p>
+      </div>
+    </div>
+
+    <div class="flows">
+
+      <div class="flow">
+        <div class="flow-title">Onboard<em>ing</em></div>
+        <p class="flow-desc">First-time user. Goal: linked first account and seeing real data within 5 minutes.</p>
+        <div class="flow-steps">
+          <div class="flow-step"><div class="step-num">01</div><strong>Sign Up</strong><span>Email + password or Apple/Google</span></div>
+          <div class="flow-step"><div class="step-num">02</div><strong>Verify</strong><span>Email + optional 2FA setup</span></div>
+          <div class="flow-step"><div class="step-num">03</div><strong>Personal Space</strong><span>Created automatically</span></div>
+          <div class="flow-step"><div class="step-num">04</div><strong>Link First Account</strong><span>Plaid flow</span></div>
+          <div class="flow-step"><div class="step-num">05</div><strong>Quick Tour</strong><span>3-screen overview</span></div>
+          <div class="flow-step"><div class="step-num">06</div><strong>Optional Invite</strong><span>Add partner / new space</span></div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="flow-title">Sharing an Account into a <em>Space</em></div>
+        <p class="flow-desc">User has a linked account in their personal world; wants to make it visible inside a shared Space.</p>
+        <div class="flow-steps">
+          <div class="flow-step"><div class="step-num">01</div><strong>Open Account</strong><span>From Accounts tab</span></div>
+          <div class="flow-step"><div class="step-num">02</div><strong>Share With…</strong><span>Pick a space</span></div>
+          <div class="flow-step"><div class="step-num">03</div><strong>Set Granularity</strong><span>Whole account / hide specific transactions</span></div>
+          <div class="flow-step"><div class="step-num">04</div><strong>Confirm</strong><span>Visible to all members of that space</span></div>
+          <div class="flow-step"><div class="step-num">05</div><strong>Reversible</strong><span>Unshare anytime</span></div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="flow-title">Switching <em>Spaces</em></div>
+        <p class="flow-desc">User flips between Personal, Household, and Side-Project contexts. Must feel instant.</p>
+        <div class="flow-steps">
+          <div class="flow-step"><div class="step-num">01</div><strong>Tap Switcher</strong><span>Always in header</span></div>
+          <div class="flow-step"><div class="step-num">02</div><strong>Select Space</strong><span>Or "+ New Space"</span></div>
+          <div class="flow-step"><div class="step-num">03</div><strong>Reload Context</strong><span>All tabs respect the new active space</span></div>
+          <div class="flow-step"><div class="step-num">04</div><strong>Visual Cue</strong><span>Header tint changes per space</span></div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="flow-title">Setting Up a <em>Payment Link</em></div>
+        <p class="flow-desc">User wants to mark Account 1 as the funding source for Card A. Optional, but enables effective-available tracking and forecast accuracy.</p>
+        <div class="flow-steps">
+          <div class="flow-step"><div class="step-num">01</div><strong>Open Account or Card</strong><span>From Accounts tab</span></div>
+          <div class="flow-step"><div class="step-num">02</div><strong>Add Payment Link</strong><span>Pick funding account → card(s)</span></div>
+          <div class="flow-step"><div class="step-num">03</div><strong>Set Split %</strong><span>If multiple funders</span></div>
+          <div class="flow-step"><div class="step-num">04</div><strong>Choose Scope</strong><span>Single space (default) or cross-space</span></div>
+          <div class="flow-step"><div class="step-num">05</div><strong>Saved · Live</strong><span>Effective available updates immediately</span></div>
+          <div class="flow-step"><div class="step-num">06</div><strong>Edit Anytime</strong><span>Or skip if not relevant</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ TIER STRUCTURE ============ -->
+<section>
+  <div class="container">
+    <div class="section-head">
+      <div class="section-num">§ 06</div>
+      <div>
+        <h2>Pricing <em>Tiers</em></h2>
+        <p class="section-intro">Free tier acts as a trial / acquisition channel. Pro is the core consumer product. Household captures the original couples use case at higher margin. Business arrives in v2.</p>
+      </div>
+    </div>
+
+    <div class="tiers">
+
+      <div class="tier">
+        <div class="tier-name">Free</div>
+        <h3>Starter</h3>
+        <div class="price">$0 · forever</div>
+        <ul>
+          <li>1 space</li>
+          <li>Up to 2 linked accounts</li>
+          <li>Basic transactions & budgets</li>
+          <li>14-day Pro trial</li>
+          <li>No QuickBooks · No forecasting</li>
+        </ul>
+      </div>
+
+      <div class="tier featured">
+        <div class="tier-name">Most Popular</div>
+        <h3>Personal Pro</h3>
+        <div class="price">$9.99/mo · or $89/yr</div>
+        <ul>
+          <li>Unlimited linked accounts</li>
+          <li>Up to 3 spaces</li>
+          <li>Cash Flow Forecast</li>
+          <li>Goals · Bills · Budgets</li>
+          <li>Reports & exports</li>
+          <li>Alerts & notifications</li>
+        </ul>
+      </div>
+
+      <div class="tier">
+        <div class="tier-name">Household</div>
+        <h3>House<em>hold</em></h3>
+        <div class="price">$14.99/mo · or $129/yr</div>
+        <ul>
+          <li>Everything in Pro</li>
+          <li>Unlimited spaces</li>
+          <li>Advanced sharing rules</li>
+          <li>Priority support</li>
+          <li>Up to 5 members per space</li>
+        </ul>
+      </div>
+
+      <div class="tier v2-tier">
+        <div class="tier-name">v2 · Coming Later</div>
+        <h3>Business</h3>
+        <div class="price">$29.99/mo · per workspace</div>
+        <ul>
+          <li>QuickBooks 2-way sync</li>
+          <li>Multi-member with role permissions</li>
+          <li>Tax categories · receipts</li>
+          <li>Advanced reports</li>
+          <li>Audit logs</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ ROADMAP ============ -->
+<section>
+  <div class="container">
+    <div class="section-head">
+      <div class="section-num">§ 07</div>
+      <div>
+        <h2>Build <em>Roadmap</em></h2>
+        <p class="section-intro">Ship a polished consumer product first. Validate the spaces concept. Then expand into business with QuickBooks sync and team features.</p>
+      </div>
+    </div>
+
+    <div class="roadmap">
+      <div class="phase">
+        <div class="phase-label">Version 1 · Launch</div>
+        <h3>Personal & Household</h3>
+        <ul>
+          <li>Plaid integration (transactions, balances, identity)</li>
+          <li>Spaces architecture with multi-space support</li>
+          <li>Account- and transaction-level sharing controls</li>
+          <li>Payment Links (account → card relationships)</li>
+          <li>Dashboard, Transactions, Bills, Income, Budgets, Goals</li>
+          <li>Cash Flow Forecast (your differentiator)</li>
+          <li>Reports & CSV/PDF export</li>
+          <li>iOS, Android, web apps with parity</li>
+          <li>Free + Pro + Household tiers</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="phase-label">Version 2 · Expansion</div>
+        <h3>Business & Investments</h3>
+        <ul>
+          <li>Business space type with role-based permissions</li>
+          <li>QuickBooks 2-way sync</li>
+          <li>Receipt capture & tax categorization</li>
+          <li>Dedicated Investments / Net Worth tab</li>
+          <li>Multi-member workflows · audit logs</li>
+          <li>Business tier launch</li>
+          <li>Possible: shared notes, bill-pay actions, AI insights</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <span>Clear View Cash · Site Map v1.0</span>
+    <span>Living Document · Iterate as needed</span>
+  </div>
+</footer>
+
+</body>
+</html>
