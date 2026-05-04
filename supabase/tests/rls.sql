@@ -8,7 +8,7 @@
 
 begin;
 create extension if not exists pgtap;
-select plan(20);
+select plan(26);
 
 create temp table _tap (idx serial, line text);
 
@@ -34,6 +34,7 @@ $$;
 -- Fixtures (valid 8-4-4-4-12 hex UUIDs):
 --   alice           a0000000-0000-0000-0000-000000000001
 --   bob             b0000000-0000-0000-0000-000000000001
+--   charlie         c0000000-0000-0000-0000-000000000002
 --   House space     c0000000-0000-0000-0000-000000000001
 --   plaid_item      d0000000-0000-0000-0000-000000000001
 --   shared account  e0000000-0000-0000-0000-000000000001
@@ -45,8 +46,9 @@ $$;
 
 insert into auth.users (id, email, encrypted_password, email_confirmed_at, instance_id, aud, role)
 values
-  ('a0000000-0000-0000-0000-000000000001', 'alice@test', crypt('x', gen_salt('bf')), now(), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated'),
-  ('b0000000-0000-0000-0000-000000000001', 'bob@test',   crypt('x', gen_salt('bf')), now(), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated')
+  ('a0000000-0000-0000-0000-000000000001', 'alice@test',   crypt('x', gen_salt('bf')), now(), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated'),
+  ('b0000000-0000-0000-0000-000000000001', 'bob@test',     crypt('x', gen_salt('bf')), now(), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated'),
+  ('c0000000-0000-0000-0000-000000000002', 'charlie@test', crypt('x', gen_salt('bf')), now(), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated')
 on conflict (id) do nothing;
 
 insert into public.spaces (id, owner_user_id, name, kind, tint)
@@ -54,8 +56,9 @@ values ('c0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-0000000
 
 insert into public.space_members (space_id, user_id, role, accepted_at)
 values
-  ('c0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'owner', now()),
-  ('c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'member', now());
+  ('c0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'owner',  now()),
+  ('c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'member', now()),
+  ('c0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'member', now());
 
 insert into public.plaid_items (id, owner_user_id, plaid_item_id, access_token, institution_name, status)
 values ('d0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'item_alice', 'access_secret_alice', 'TestBank', 'good');
@@ -187,6 +190,59 @@ select _record(results_eq(
   $$ update public.spaces set tint = '#000000' where id = 'c0000000-0000-0000-0000-000000000001' returning 1 $$,
   $$ select where false $$,
   'bob cannot update House (only owner can)'
+));
+
+-- ---------------------------------------------------------------------
+-- account_share_visibilities — per-member allowlist on top of an
+-- existing account_shares row. Alice restricts the shared account to
+-- bob only; charlie (also a House member) loses visibility.
+-- ---------------------------------------------------------------------
+select _as_user('a0000000-0000-0000-0000-000000000001');
+select _record(lives_ok(
+  $$ insert into public.account_share_visibilities (account_id, space_id, user_id)
+     values ('e0000000-0000-0000-0000-000000000001',
+             'c0000000-0000-0000-0000-000000000001',
+             'b0000000-0000-0000-0000-000000000001') $$,
+  'alice can restrict shared account visibility to bob'
+));
+
+select _as_user('c0000000-0000-0000-0000-000000000002');
+select _record(results_eq(
+  $$ select count(*) from public.accounts where id = 'e0000000-0000-0000-0000-000000000001' $$,
+  $$ values (0::bigint) $$,
+  'charlie does NOT see shared account when not on the allowlist'
+));
+select _record(results_eq(
+  $$ select count(*) from public.transactions where account_id = 'e0000000-0000-0000-0000-000000000001' $$,
+  $$ values (0::bigint) $$,
+  'charlie does NOT see transactions for an account he is not allowlisted on'
+));
+select _record(results_eq(
+  $$ select count(*) from public.account_share_visibilities $$,
+  $$ values (0::bigint) $$,
+  'charlie cannot read visibility rows that do not list him'
+));
+
+select _as_user('b0000000-0000-0000-0000-000000000001');
+select _record(throws_ok(
+  $$ insert into public.account_share_visibilities (account_id, space_id, user_id)
+     values ('e0000000-0000-0000-0000-000000000001',
+             'c0000000-0000-0000-0000-000000000001',
+             'b0000000-0000-0000-0000-000000000001') $$,
+  null,
+  'bob (non-owner) cannot write visibility rows for alice account'
+));
+
+-- Empty allowlist preserves the original "everyone in the space" behavior.
+select _as_user('a0000000-0000-0000-0000-000000000001');
+delete from public.account_share_visibilities
+  where account_id = 'e0000000-0000-0000-0000-000000000001';
+
+select _as_user('c0000000-0000-0000-0000-000000000002');
+select _record(results_eq(
+  $$ select count(*) from public.accounts where id = 'e0000000-0000-0000-0000-000000000001' $$,
+  $$ values (1::bigint) $$,
+  'charlie sees shared account again after allowlist is cleared'
 ));
 
 -- Anonymous role sees nothing.

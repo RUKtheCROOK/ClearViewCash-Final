@@ -20,9 +20,10 @@ import {
   type WhatIfMutation,
 } from "@cvc/domain";
 import { getAccountsForView, getMySpaces } from "@cvc/api-client";
-import { ForecastChart } from "./ForecastChart";
+import { ForecastChart, type ForecastChartType } from "./ForecastChart";
 import { WhatIfPanel } from "./WhatIfPanel";
 import { CoverageStatusCard } from "./CoverageStatusCard";
+import { DayDetailPanel } from "./DayDetailPanel";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -65,6 +66,10 @@ export default function ForecastPage() {
   const [fundingSummary, setFundingSummary] = useState<FundingAccountSummary[]>([]);
   const [granularity, setGranularity] = useState<ForecastGranularity>("daily");
   const [mutations, setMutations] = useState<WhatIfMutation[]>([]);
+  const [chartType, setChartType] = useState<ForecastChartType>("bars");
+  const [expanded, setExpanded] = useState(false);
+  const [selectedBucketIndex, setSelectedBucketIndex] = useState<number | null>(null);
+  const [accountsById, setAccountsById] = useState<Record<string, string>>({});
 
   const canForecast = tierAllows(tier, "forecast");
 
@@ -127,11 +132,17 @@ export default function ForecastPage() {
       const fundingBalances = fundingAccounts.map((a) => ({
         account_id: a.id,
         current_balance: a.current_balance ?? 0,
+        name: a.name ?? undefined,
       }));
       const cardBalances = cardAccounts.map((a) => ({
         account_id: a.id,
         current_balance: a.current_balance ?? 0,
+        name: a.name ?? undefined,
       }));
+
+      const namesById: Record<string, string> = {};
+      for (const a of accounts) namesById[a.id] = a.name ?? "Account";
+      setAccountsById(namesById);
 
       const allocations = allocatePaymentLinks(links, [...fundingBalances, ...cardBalances]);
       const reservedByFunding = new Map<string, number>();
@@ -184,6 +195,10 @@ export default function ForecastPage() {
     if (!result) return [];
     return aggregateForecast(result.days, granularity);
   }, [result, granularity]);
+
+  useEffect(() => {
+    setSelectedBucketIndex(null);
+  }, [granularity, activeSpaceId]);
 
   const scenarioResult = useMemo(() => {
     if (!forecastInput || mutations.length === 0) return null;
@@ -308,14 +323,47 @@ export default function ForecastPage() {
       {coverage ? <CoverageStatusCard report={coverage} /> : null}
 
       <section className="card" style={{ padding: 0 }}>
-        <header style={{ padding: 20, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <header
+          style={{
+            padding: 20,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
           <h2 style={{ margin: 0, fontSize: 18 }}>Timeline</h2>
-          <GranularityToggle value={granularity} onChange={setGranularity} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <ChartTypeToggle value={chartType} onChange={setChartType} />
+            <GranularityToggle value={granularity} onChange={setGranularity} />
+            <button
+              onClick={() => setExpanded((e) => !e)}
+              aria-label={expanded ? "Collapse chart" : "Expand chart"}
+              title={expanded ? "Collapse" : "Expand"}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 8,
+                border: "1px solid var(--border, #E5E7EB)",
+                background: "white",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "var(--text-muted, #64748B)",
+              }}
+            >
+              {expanded ? "Collapse" : "Expand"}
+            </button>
+          </div>
         </header>
         <ForecastChart
           buckets={buckets}
           compareBuckets={scenarioBuckets.length ? scenarioBuckets : undefined}
           compareLabel="With scenarios"
+          chartType={chartType}
+          expanded={expanded}
+          selectedIndex={selectedBucketIndex}
+          onSelectBucket={(_, i) => setSelectedBucketIndex(i)}
         />
       </section>
 
@@ -407,7 +455,62 @@ export default function ForecastPage() {
           </tbody>
         </table>
       </section>
+
+      <DayDetailPanel
+        bucket={selectedBucketIndex != null ? buckets[selectedBucketIndex] ?? null : null}
+        accountsById={accountsById}
+        onClose={() => setSelectedBucketIndex(null)}
+      />
     </main>
+  );
+}
+
+const CHART_TYPES: Array<{ key: ForecastChartType; label: string }> = [
+  { key: "bars", label: "Bars" },
+  { key: "line", label: "Line" },
+  { key: "flows", label: "Flows" },
+];
+
+function ChartTypeToggle({
+  value,
+  onChange,
+}: {
+  value: ForecastChartType;
+  onChange: (t: ForecastChartType) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        gap: 2,
+        padding: 2,
+        background: "var(--bg, #F7F8FB)",
+        border: "1px solid var(--border, #E5E7EB)",
+        borderRadius: 999,
+      }}
+    >
+      {CHART_TYPES.map((t) => {
+        const active = t.key === value;
+        return (
+          <button
+            key={t.key}
+            onClick={() => onChange(t.key)}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 999,
+              border: "none",
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: 600,
+              background: active ? "var(--primary, #0EA5E9)" : "transparent",
+              color: active ? "white" : "var(--text-muted, #64748B)",
+            }}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

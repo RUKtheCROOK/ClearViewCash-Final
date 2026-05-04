@@ -3,16 +3,20 @@ import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@cvc/types/supabase.generated";
 import {
+  renameVendor,
+  setTransactionDisplayName,
   setTransactionNote,
   setTransactionRecurring,
   setTransactionShare,
   updateTransactionCategory,
 } from "@cvc/api-client";
+import { displayMerchantName } from "@cvc/domain";
 import { SplitEditor } from "./SplitEditor";
 
 export interface EditableTxn {
   id: string;
   merchant_name: string | null;
+  display_name: string | null;
   amount: number;
   posted_at: string;
   category: string | null;
@@ -44,6 +48,8 @@ export function EditPanel({
   onClose,
   onSaved,
 }: Props) {
+  const [name, setName] = useState("");
+  const [applyToVendor, setApplyToVendor] = useState(false);
   const [category, setCategory] = useState("");
   const [note, setNote] = useState("");
   const [recurring, setRecurring] = useState(false);
@@ -54,6 +60,8 @@ export function EditPanel({
 
   useEffect(() => {
     if (!txn) return;
+    setName(displayMerchantName(txn));
+    setApplyToVendor(false);
     setCategory(txn.category ?? "");
     setNote(txn.note ?? "");
     setRecurring(txn.is_recurring);
@@ -74,6 +82,18 @@ export function EditPanel({
     setSaving(true);
     setError(null);
     try {
+      const trimmedName = name.trim();
+      const currentDisplay = displayMerchantName(txn);
+      // null means "revert to plaid merchant_name"; only persist when the user
+      // typed something different from what's currently shown.
+      if (trimmedName !== currentDisplay) {
+        const next = trimmedName.length && trimmedName !== (txn.merchant_name ?? "") ? trimmedName : null;
+        if (applyToVendor && txn.merchant_name) {
+          await renameVendor(client, { merchant_name: txn.merchant_name, display_name: next });
+        } else {
+          await setTransactionDisplayName(client, { id: txn.id, display_name: next });
+        }
+      }
       const trimmedCategory = category.trim();
       const newCategory = trimmedCategory.length ? trimmedCategory : null;
       if (newCategory !== (txn.category ?? null)) {
@@ -109,7 +129,7 @@ export function EditPanel({
       <aside style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 22 }}>{txn.merchant_name ?? "Unknown"}</h2>
+            <h2 style={{ margin: 0, fontSize: 22 }}>{displayMerchantName(txn)}</h2>
             <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
               {txn.posted_at}
               {txn.pending ? " · pending" : ""}
@@ -121,6 +141,41 @@ export function EditPanel({
         </div>
 
         <label className="muted" style={labelStyle}>
+          Name
+        </label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={txn.merchant_name ?? "Transaction name"}
+          style={inputStyle}
+        />
+        {txn.merchant_name ? (
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              marginTop: 8,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={applyToVendor}
+              onChange={(e) => setApplyToVendor(e.target.checked)}
+              style={{ width: 16, height: 16, marginTop: 2 }}
+            />
+            <span style={{ fontSize: 13 }}>
+              Apply to all transactions from <strong>{txn.merchant_name}</strong>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Renames every past and future transaction from this vendor.
+              </div>
+            </span>
+          </label>
+        ) : null}
+
+        <label className="muted" style={{ ...labelStyle, marginTop: 16 }}>
           Category
         </label>
         <input

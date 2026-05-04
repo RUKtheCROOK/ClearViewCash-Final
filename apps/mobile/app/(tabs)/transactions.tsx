@@ -7,6 +7,7 @@ import {
   getTransactionsForView,
   setTransactionShare,
 } from "@cvc/api-client";
+import { displayMerchantName } from "@cvc/domain";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
 import { TransactionEditSheet } from "../../components/TransactionEditSheet";
@@ -15,6 +16,7 @@ import { RecurringSuggestionsBanner } from "../../components/RecurringSuggestion
 interface Txn {
   id: string;
   merchant_name: string | null;
+  display_name: string | null;
   amount: number;
   posted_at: string;
   category: string | null;
@@ -133,7 +135,7 @@ export default function Transactions() {
       if (status === "pending" && !t.pending) return false;
       if (status === "completed" && t.pending) return false;
       if (recurringOnly && !t.is_recurring) return false;
-      if (search && !(t.merchant_name ?? "").toLowerCase().includes(search.toLowerCase())) return false;
+      if (search && !displayMerchantName(t).toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
   }, [txns, status, recurringOnly, search]);
@@ -281,7 +283,7 @@ export default function Transactions() {
                 }}
               >
                 <View style={{ flex: 1 }}>
-                  <Text>{t.merchant_name ?? "Unknown"}</Text>
+                  <Text>{displayMerchantName(t)}</Text>
                   <Text variant="muted">
                     {t.category ?? "Uncategorized"} · {t.posted_at}
                     {t.pending ? " · pending" : ""}

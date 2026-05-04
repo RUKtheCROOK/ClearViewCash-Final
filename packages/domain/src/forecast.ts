@@ -1,5 +1,5 @@
 import { addDays, addMonths, addWeeks, addYears, formatISO, isSameDay, parseISO } from "date-fns";
-import type { Bill, IncomeEvent, IsoDate, MoneyCents, PaymentLink, Uuid } from "@cvc/types";
+import type { Bill, Cadence, IncomeEvent, IsoDate, MoneyCents, PaymentLink, Uuid } from "@cvc/types";
 import type { AccountBalance } from "./payment-links";
 import { allocatePaymentLinks } from "./payment-links";
 
@@ -26,13 +26,45 @@ export interface ForecastInput {
   cardDailySpend?: CardSpendRate[];
 }
 
+export type AppliedItemKind = "bill" | "income" | "estimated_card_spend";
+export type AppliedItemSource = "scheduled" | "estimated";
+
+/**
+ * One concrete thing that happens to the user's money on a given day. Bills
+ * and income are "scheduled" (the user knows them); card-spend accruals are
+ * "estimated" (projected from the last 30 days of activity).
+ *
+ * `amount` is signed: positive = inflow, negative = outflow.
+ */
+export interface AppliedDayItem {
+  kind: AppliedItemKind;
+  source: AppliedItemSource;
+  name: string;
+  amount: MoneyCents;
+  accountId: Uuid | null;
+  refId: Uuid | null;
+  cadence?: Cadence;
+  note?: string;
+}
+
 export interface ForecastDay {
   date: IsoDate;
   fundingBalances: Record<Uuid, MoneyCents>;
   effectiveAvailable: MoneyCents;
+  /**
+   * Effective available at the start of the day, before this day's bills,
+   * income, and card-spend accruals are applied. For day 0 this is the initial
+   * effective available; for day N>0 this equals day N-1's effectiveAvailable.
+   */
+  openEffectiveAvailable: MoneyCents;
   cashIn: MoneyCents;
   cashOut: MoneyCents;
   belowThreshold: boolean;
+  /**
+   * Itemized list of every bill, income, and estimated card-spend accrual
+   * that contributes to this day. Used by the day-detail UI.
+   */
+  appliedItems: AppliedDayItem[];
 }
 
 export interface ForecastResult {
@@ -51,30 +83,70 @@ export function forecast(input: ForecastInput): ForecastResult {
   for (const b of input.fundingBalances) balances[b.account_id] = b.current_balance;
 
   const cardBalanceById: Record<Uuid, MoneyCents> = {};
-  for (const c of input.cardBalances) cardBalanceById[c.account_id] = c.current_balance;
+  const cardNameById: Record<Uuid, string> = {};
+  for (const c of input.cardBalances) {
+    cardBalanceById[c.account_id] = c.current_balance;
+    if (c.name) cardNameById[c.account_id] = c.name;
+  }
 
   const dailySpendById: Record<Uuid, MoneyCents> = {};
   for (const r of input.cardDailySpend ?? []) dailySpendById[r.card_account_id] = r.daily_spend_cents;
 
+  // Initial effective available, before any day's flows are applied. This
+  // becomes day 0's "open" balance; later days carry the previous close.
+  const initialAllocations = allocatePaymentLinks(input.paymentLinks, [
+    ...Object.entries(balances).map(([id, bal]) => ({ account_id: id, current_balance: bal })),
+    ...Object.entries(cardBalanceById).map(([id, bal]) => ({ account_id: id, current_balance: bal })),
+  ]);
+  const initialReserved: Record<Uuid, MoneyCents> = {};
+  for (const a of initialAllocations) {
+    initialReserved[a.funding_account_id] = (initialReserved[a.funding_account_id] ?? 0) + a.reserved_cents;
+  }
+  let initialEffective = 0;
+  for (const id of Object.keys(balances)) {
+    initialEffective += (balances[id] ?? 0) - (initialReserved[id] ?? 0);
+  }
+
   const days: ForecastDay[] = [];
   const lowBalanceDays: IsoDate[] = [];
+  let prevEffective = initialEffective;
 
   for (let i = 0; i < horizon; i++) {
     const day = addDays(start, i);
     const dayIso = formatISO(day, { representation: "date" });
+    const openEffectiveAvailable = prevEffective;
 
     let cashIn = 0;
     let cashOut = 0;
+    const appliedItems: AppliedDayItem[] = [];
 
     for (const inc of input.incomeEvents) {
       if (incomeEventConsumed(inc)) continue;
       if (occursOn(inc.cadence, parseISO(inc.next_due_at), day)) {
         cashIn += inc.amount;
+        appliedItems.push({
+          kind: "income",
+          source: "scheduled",
+          name: inc.name,
+          amount: inc.amount,
+          accountId: inc.linked_account_id,
+          refId: inc.id,
+          cadence: inc.cadence,
+        });
       }
     }
     for (const bill of input.bills) {
       if (occursOn(bill.cadence, parseISO(bill.next_due_at), day)) {
         cashOut += bill.amount;
+        appliedItems.push({
+          kind: "bill",
+          source: "scheduled",
+          name: bill.name,
+          amount: -bill.amount,
+          accountId: bill.linked_account_id,
+          refId: bill.id,
+          cadence: bill.cadence,
+        });
       }
     }
 
@@ -89,7 +161,18 @@ export function forecast(input: ForecastInput): ForecastResult {
     if (i > 0) {
       for (const id of Object.keys(cardBalanceById)) {
         const rate = dailySpendById[id] ?? 0;
-        if (rate > 0) cardBalanceById[id] = (cardBalanceById[id] ?? 0) + rate;
+        if (rate > 0) {
+          cardBalanceById[id] = (cardBalanceById[id] ?? 0) + rate;
+          appliedItems.push({
+            kind: "estimated_card_spend",
+            source: "estimated",
+            name: cardNameById[id] ? `${cardNameById[id]} avg daily spend` : "Card avg daily spend",
+            amount: -rate,
+            accountId: id,
+            refId: id,
+            note: "Projected from average of last 30 days",
+          });
+        }
       }
     }
 
@@ -114,10 +197,14 @@ export function forecast(input: ForecastInput): ForecastResult {
       date: dayIso,
       fundingBalances: { ...balances },
       effectiveAvailable: effective,
+      openEffectiveAvailable,
       cashIn,
       cashOut,
       belowThreshold,
+      appliedItems,
     });
+
+    prevEffective = effective;
   }
 
   return { days, lowBalanceDays };
@@ -304,10 +391,23 @@ export interface ForecastBucket {
   label: string;
   startDate: IsoDate;
   endDate: IsoDate;
+  /** Effective available at the close of the bucket's last day. */
   effectiveAvailable: MoneyCents;
+  /** Effective available at the open of the bucket's first day. */
+  openEffectiveAvailable: MoneyCents;
   cashIn: MoneyCents;
   cashOut: MoneyCents;
   belowThreshold: boolean;
+  /**
+   * All items that occurred within the bucket. For daily granularity this
+   * mirrors the day's items; for weekly/monthly this is the concatenation
+   * across every day in the bucket. Each item carries its own date via the
+   * ForecastDay it came from — but for V1 the UI prefixes each row with the
+   * bucket label, which is sufficient.
+   */
+  appliedItems: AppliedDayItem[];
+  /** Per-day breakdown for buckets that span multiple days. */
+  days: ForecastDay[];
 }
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -326,9 +426,12 @@ export function aggregateForecast(days: ForecastDay[], granularity: ForecastGran
       startDate: d.date,
       endDate: d.date,
       effectiveAvailable: d.effectiveAvailable,
+      openEffectiveAvailable: d.openEffectiveAvailable,
       cashIn: d.cashIn,
       cashOut: d.cashOut,
       belowThreshold: d.belowThreshold,
+      appliedItems: d.appliedItems,
+      days: [d],
     }));
   }
 
@@ -352,9 +455,12 @@ export function aggregateForecast(days: ForecastDay[], granularity: ForecastGran
       startDate: first.date,
       endDate: last.date,
       effectiveAvailable: last.effectiveAvailable,
+      openEffectiveAvailable: first.openEffectiveAvailable,
       cashIn: group.reduce((s, d) => s + d.cashIn, 0),
       cashOut: group.reduce((s, d) => s + d.cashOut, 0),
       belowThreshold: group.some((d) => d.belowThreshold),
+      appliedItems: group.flatMap((d) => d.appliedItems),
+      days: group,
     };
   });
 }

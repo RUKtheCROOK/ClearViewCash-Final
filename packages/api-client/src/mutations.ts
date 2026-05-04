@@ -1,5 +1,5 @@
 import type { Database } from "@cvc/types/supabase.generated";
-import { nextDueFromCadence } from "@cvc/domain";
+import { nextDueFromCadence, normalizeMerchant } from "@cvc/domain";
 import type { Cadence } from "@cvc/types";
 import type { CvcSupabaseClient } from "./supabase-client";
 
@@ -84,6 +84,38 @@ export async function removeAccountShare(
   if (error) throw error;
 }
 
+/**
+ * Replace the per-member visibility allowlist for a (account, space) share.
+ *
+ * `user_ids` empty/null = everyone in the space sees the share (deletes all
+ * rows). Non-empty = only those users + the account owner see it.
+ *
+ * Two writes — delete then insert, in the caller's session. PostgREST runs
+ * each as its own transaction, so a network failure between them can leave
+ * the allowlist empty (i.e. visible to everyone). Callers should refetch
+ * via `getShareVisibility` after the await.
+ */
+export async function setShareVisibility(
+  client: CvcSupabaseClient,
+  args: { account_id: string; space_id: string; user_ids: string[] | null },
+) {
+  const del = await client
+    .from("account_share_visibilities")
+    .delete()
+    .eq("account_id", args.account_id)
+    .eq("space_id", args.space_id);
+  if (del.error) throw del.error;
+  const ids = args.user_ids ?? [];
+  if (ids.length === 0) return;
+  const rows = ids.map((user_id) => ({
+    account_id: args.account_id,
+    space_id: args.space_id,
+    user_id,
+  }));
+  const { error } = await client.from("account_share_visibilities").insert(rows);
+  if (error) throw error;
+}
+
 export async function setTransactionShare(
   client: CvcSupabaseClient,
   args: { transaction_id: string; space_id: string; hidden: boolean },
@@ -127,6 +159,80 @@ export async function setTransactionNote(
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function setTransactionDisplayName(
+  client: CvcSupabaseClient,
+  args: { id: string; display_name: string | null },
+) {
+  const { data, error } = await client
+    .from("transactions")
+    .update({ display_name: args.display_name })
+    .eq("id", args.id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Apply (or clear) a per-vendor display-name rule for the current user.
+ *
+ * Pass `display_name: null` to remove the rule and revert all matching rows
+ * back to Plaid's `merchant_name`. Vendor identity is matched on the same
+ * normalized key used by recurring detection (lowercased, punctuation- and
+ * trailing-digit-stripped via `normalizeMerchant`).
+ *
+ * Two writes — upsert/delete the rule, then bulk-update matching transactions.
+ * RLS scopes the transactions read+update to the caller; we filter by
+ * normalized key in JS to keep the regex logic in one place.
+ */
+export async function renameVendor(
+  client: CvcSupabaseClient,
+  args: { merchant_name: string; display_name: string | null },
+) {
+  const { data: user } = await client.auth.getUser();
+  if (!user.user) throw new Error("Not authenticated");
+  const key = normalizeMerchant(args.merchant_name);
+  if (!key) throw new Error("Cannot create a rule for an empty vendor name");
+
+  if (args.display_name == null) {
+    const { error: delErr } = await client
+      .from("merchant_renames")
+      .delete()
+      .eq("owner_user_id", user.user.id)
+      .eq("normalized_merchant", key);
+    if (delErr) throw delErr;
+  } else {
+    const { error: upErr } = await client
+      .from("merchant_renames")
+      .upsert(
+        {
+          owner_user_id: user.user.id,
+          normalized_merchant: key,
+          display_name: args.display_name,
+        },
+        { onConflict: "owner_user_id,normalized_merchant" },
+      );
+    if (upErr) throw upErr;
+  }
+
+  const { data: rows, error: fetchErr } = await client
+    .from("transactions")
+    .select("id, merchant_name")
+    .not("merchant_name", "is", null);
+  if (fetchErr) throw fetchErr;
+  const matching = (rows ?? [])
+    .filter((r) => r.merchant_name && normalizeMerchant(r.merchant_name) === key)
+    .map((r) => r.id);
+  if (matching.length === 0) return { updated: 0 };
+
+  const { error: updErr } = await client
+    .from("transactions")
+    .update({ display_name: args.display_name })
+    .in("id", matching);
+  if (updErr) throw updErr;
+  return { updated: matching.length };
 }
 
 export async function tagTransactionsRecurring(

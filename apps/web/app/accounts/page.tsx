@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -8,9 +8,18 @@ import {
   getAccountsForView,
   getMySpaces,
   getPlaidItemsStatus,
+  getTransactionsForView,
 } from "@cvc/api-client";
-import { effectiveAvailableBalances } from "@cvc/domain";
+import {
+  allocatePaymentLinks,
+  computeObligations,
+  displayMerchantName,
+  effectiveAvailableBalances,
+  type ObligationsBreakdown,
+  type PaymentLinkAllocation,
+} from "@cvc/domain";
 import { openPlaidLink } from "../../lib/plaid";
+import { EditPanel, type EditableTxn } from "../transactions/EditPanel";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -85,10 +94,20 @@ export default function AccountsPage() {
   const [cards, setCards] = useState<CardRow[]>([]);
   const [itemStatus, setItemStatus] = useState<Record<string, PlaidItemStatus>>({});
   const [effective, setEffective] = useState<Record<string, number>>({});
+  const [allocations, setAllocations] = useState<PaymentLinkAllocation[]>([]);
   const [reconnectingItemId, setReconnectingItemId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reloadCount, setReloadCount] = useState(0);
+  const [cashOnHand, setCashOnHand] = useState(0);
+  const [obligations, setObligations] = useState<ObligationsBreakdown>({
+    debtCents: 0,
+    upcomingBillsCents: 0,
+    totalCents: 0,
+  });
+  const [recent, setRecent] = useState<EditableTxn[]>([]);
+  const [editing, setEditing] = useState<EditableTxn | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     (async () => {
@@ -116,7 +135,8 @@ export default function AccountsPage() {
   useEffect(() => {
     if (!signedIn) return;
     (async () => {
-      const [accs, allAccsRes, linksRes, cardsRes, items] = await Promise.all([
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const [accs, allAccsRes, linksRes, cardsRes, items, billsRes, txnsRes] = await Promise.all([
         getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView }),
         supabase
           .from("accounts")
@@ -124,6 +144,20 @@ export default function AccountsPage() {
         supabase.from("payment_links").select("id, funding_account_id, name, cross_space"),
         supabase.from("payment_link_cards").select("payment_link_id, card_account_id, split_pct"),
         getPlaidItemsStatus(supabase),
+        activeSpaceId
+          ? supabase
+              .from("bills")
+              .select("amount, next_due_at")
+              .eq("space_id", activeSpaceId)
+              .gte("next_due_at", todayIso)
+          : Promise.resolve({ data: [] as Array<{ amount: number; next_due_at: string }> }),
+        getTransactionsForView(supabase, {
+          spaceId: activeSpaceId,
+          sharedView,
+          limit: 10,
+          fields:
+            "id, merchant_name, display_name, amount, posted_at, category, pending, is_recurring, account_id, owner_user_id, note",
+        }),
       ]);
       const accounts = accs as unknown as AccountRow[];
       setRows(accounts);
@@ -131,21 +165,81 @@ export default function AccountsPage() {
       setLinks((linksRes.data ?? []) as LinkRow[]);
       setCards((cardsRes.data ?? []) as CardRow[]);
       setItemStatus(Object.fromEntries(items.map((it) => [it.id, it])));
+
+      const bills = (billsRes.data ?? []) as Array<{ amount: number; next_due_at: string }>;
+      setCashOnHand(
+        accounts
+          .filter((a) => a.type === "depository")
+          .reduce((s, a) => s + (a.current_balance ?? 0), 0),
+      );
+      setObligations(computeObligations({ accounts, bills }));
+      setRecent(txnsRes as unknown as EditableTxn[]);
       const linkObjs = (linksRes.data ?? []).map((pl) => ({
         ...pl,
         owner_user_id: "",
         cards: (cardsRes.data ?? []).filter((c) => c.payment_link_id === pl.id),
       }));
-      const eff = effectiveAvailableBalances(
-        linkObjs as never,
-        accounts.map((a) => ({ account_id: a.id, current_balance: a.current_balance ?? 0 })),
-      );
+      const allBalances = [
+        ...accounts.map((a) => ({ account_id: a.id, current_balance: a.current_balance ?? 0 })),
+        ...((allAccsRes.data ?? []) as unknown as AccountRow[])
+          .filter((a) => !accounts.some((ac) => ac.id === a.id))
+          .map((a) => ({ account_id: a.id, current_balance: a.current_balance ?? 0 })),
+      ];
+      const eff = effectiveAvailableBalances(linkObjs as never, allBalances);
       setEffective(Object.fromEntries(eff));
+      setAllocations(allocatePaymentLinks(linkObjs as never, allBalances));
     })();
   }, [signedIn, activeSpaceId, sharedView, reloadCount]);
 
+  useEffect(() => {
+    if (!signedIn || !sharedView || !activeSpaceId) {
+      setHiddenIds(new Set());
+      return;
+    }
+    supabase
+      .from("transaction_shares")
+      .select("transaction_id")
+      .eq("space_id", activeSpaceId)
+      .eq("hidden", true)
+      .then(({ data }) => {
+        const ids = (data ?? []).map((r: { transaction_id: string }) => r.transaction_id);
+        setHiddenIds(new Set(ids));
+      });
+  }, [signedIn, activeSpaceId, sharedView, reloadCount]);
+
+  const effectiveAvailableTotal = cashOnHand - obligations.totalCents;
+  const obligationsSubtitle = useMemo(() => {
+    const parts: string[] = [];
+    if (obligations.debtCents > 0)
+      parts.push(`$${(obligations.debtCents / 100).toFixed(0)} balances`);
+    if (obligations.upcomingBillsCents > 0)
+      parts.push(`$${(obligations.upcomingBillsCents / 100).toFixed(0)} bills (30d)`);
+    return parts.join(" · ");
+  }, [obligations]);
+  const categorySuggestions = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of recent) if (t.category) set.add(t.category);
+    return Array.from(set).sort();
+  }, [recent]);
+
   const accountNameById = new Map(rows.map((r) => [r.id, r.name]));
   const myAccountNameById = new Map(myAccounts.map((r) => [r.id, r.name]));
+  const balanceById = new Map<string, number>(
+    [...myAccounts, ...rows].map((r) => [r.id, r.current_balance ?? 0]),
+  );
+
+  function isDebtFullyCovered(account: AccountRow): boolean {
+    if (account.type !== "credit") return false;
+    if ((account.current_balance ?? 0) <= 0) return false;
+    const cardAllocs = allocations.filter((a) => a.card_account_id === account.id);
+    if (cardAllocs.length === 0) return false;
+    for (const alloc of cardAllocs) {
+      if (!balanceById.has(alloc.funding_account_id)) return false;
+      const funderBalance = balanceById.get(alloc.funding_account_id) ?? 0;
+      if (funderBalance < alloc.reserved_cents) return false;
+    }
+    return true;
+  }
 
   function badgesFor(account: AccountRow): string[] {
     const out: string[] = [];
@@ -368,6 +462,62 @@ export default function AccountsPage() {
         </div>
       ) : null}
 
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        <div className="card">
+          <div className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            Cash on hand
+          </div>
+          <div
+            style={{
+              fontSize: 24,
+              fontWeight: 700,
+              marginTop: 6,
+              color: cashOnHand > 0 ? "var(--positive)" : "var(--text)",
+            }}
+          >
+            {fmtMoney(cashOnHand)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            Obligations
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 6 }}>
+            {fmtMoney(obligations.totalCents)}
+          </div>
+          {obligationsSubtitle ? (
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              {obligationsSubtitle}
+            </div>
+          ) : null}
+        </div>
+        <div className="card">
+          <div className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            Effective available
+          </div>
+          <div
+            style={{
+              fontSize: 24,
+              fontWeight: 700,
+              marginTop: 6,
+              color: effectiveAvailableTotal > 0 ? "var(--positive)" : "var(--text)",
+            }}
+          >
+            {fmtMoney(effectiveAvailableTotal)}
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Cash on hand minus obligations.
+          </div>
+        </div>
+      </div>
+
       {rows.length === 0 ? (
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
@@ -383,6 +533,7 @@ export default function AccountsPage() {
             const needsReconnect = status === "error";
             const ago = relativeAgo(a.last_synced_at ?? null);
             const badges = badgesFor(a);
+            const fullyCovered = isDebtFullyCovered(a);
             const showEffective =
               a.type === "depository" &&
               effective[a.id] !== undefined &&
@@ -412,6 +563,20 @@ export default function AccountsPage() {
                           }}
                         >
                           {needsReconnect ? "Needs reconnect" : "Synced"}
+                        </span>
+                      ) : null}
+                      {fullyCovered ? (
+                        <span
+                          style={{
+                            padding: "2px 10px",
+                            borderRadius: 999,
+                            background: "var(--positive)",
+                            color: "white",
+                            fontSize: 11,
+                            fontWeight: 600,
+                          }}
+                        >
+                          Fully covered
                         </span>
                       ) : null}
                     </div>
@@ -499,6 +664,70 @@ export default function AccountsPage() {
           })}
         </div>
       )}
+
+      <section style={{ marginTop: 24 }}>
+        <h2 style={{ fontSize: 18, marginBottom: 12 }}>Recent transactions</h2>
+        {recent.length === 0 ? (
+          <div className="card">
+            <p className="muted" style={{ margin: 0 }}>
+              {sharedView ? "Nothing shared into this space yet." : "No transactions yet."}
+            </p>
+          </div>
+        ) : (
+          <div className="card" style={{ padding: 0 }}>
+            {recent.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setEditing(t)}
+                style={{
+                  display: "flex",
+                  width: "100%",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "12px 16px",
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: "1px solid var(--border)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontFamily: "inherit",
+                  color: "var(--text)",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 500 }}>{displayMerchantName(t)}</div>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                    {t.category ?? "Uncategorized"} · {t.posted_at}
+                    {t.pending ? " · pending" : ""}
+                    {t.is_recurring ? " · recurring" : ""}
+                    {t.note ? " · note" : ""}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    fontWeight: 600,
+                    color: t.amount > 0 ? "var(--positive)" : "var(--text)",
+                  }}
+                >
+                  {fmtMoney(t.amount)}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <EditPanel
+        client={supabase}
+        txn={editing}
+        spaceId={activeSpaceId}
+        sharedView={sharedView}
+        hiddenInSpace={editing ? hiddenIds.has(editing.id) : false}
+        categorySuggestions={categorySuggestions}
+        onClose={() => setEditing(null)}
+        onSaved={() => setReloadCount((c) => c + 1)}
+      />
     </main>
   );
 }

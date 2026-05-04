@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Card, HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
 import {
   computeCoverageWarnings,
+  computeObligations,
   computeRolloverCents,
   computeSpentByCategory,
-  effectiveAvailableBalances,
   effectiveLimit,
   forecast,
   goalProgressFraction,
   type CategorizedTxn,
   type CoverageReport,
+  type ObligationsBreakdown,
 } from "@cvc/domain";
 import {
   getAccountsForView,
@@ -19,10 +20,12 @@ import {
   getGoals,
   getTransactionsForView,
 } from "@cvc/api-client";
+import { displayMerchantName } from "@cvc/domain";
 import type { PaymentLink } from "@cvc/types";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
 import { CoverageStatusCard } from "../../components/CoverageStatusCard";
+import { TransactionEditSheet, type EditableTxn } from "../../components/TransactionEditSheet";
 
 interface GoalSummary {
   id: string;
@@ -46,17 +49,20 @@ export default function Dashboard() {
   const router = useRouter();
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const sharedView = useApp((s) => s.sharedView);
+  const [reloadCount, setReloadCount] = useState(0);
+  const [editing, setEditing] = useState<EditableTxn | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [data, setData] = useState<{
-    netWorth: number;
     cashOnHand: number;
-    debt: number;
+    obligations: ObligationsBreakdown;
     effective: number;
     upcomingBills: number;
-    recent: Array<{ id: string; merchant_name: string | null; amount: number; posted_at: string }>;
+    recent: EditableTxn[];
     topGoals: GoalSummary[];
     topBudgets: BudgetSummary[];
     hasBudgets: boolean;
     coverage: CoverageReport | null;
+    categorySuggestions: string[];
   } | null>(null);
 
   useEffect(() => {
@@ -73,7 +79,8 @@ export default function Dashboard() {
             spaceId: activeSpaceId,
             sharedView,
             limit: 5,
-            fields: "id, merchant_name, amount, posted_at",
+            fields:
+              "id, merchant_name, display_name, amount, posted_at, category, pending, is_recurring, account_id, owner_user_id, note",
           }),
           supabase
             .from("bills")
@@ -94,14 +101,11 @@ export default function Dashboard() {
           }),
         ]);
       const cashAccounts = accounts.filter((a) => a.type === "depository");
-      const debtAccounts = accounts.filter((a) => a.type === "credit" || a.type === "loan");
       const cashOnHand = cashAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0);
-      const debt = debtAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0);
-      const netWorth = cashOnHand - debt;
-      const upcomingBills = (billsRes.data ?? []).reduce(
-        (s: number, b: { amount: number }) => s + b.amount,
-        0,
-      );
+      const bills = (billsRes.data ?? []) as Array<{ amount: number; next_due_at: string }>;
+      const obligations = computeObligations({ accounts, bills });
+      const effective = cashOnHand - obligations.totalCents;
+      const upcomingBills = obligations.upcomingBillsCents;
 
       const links: PaymentLink[] = (linksRes.data ?? []).map(
         (pl: { id: string; owner_user_id: string; funding_account_id: string; name: string }) => ({
@@ -111,14 +115,6 @@ export default function Dashboard() {
           ),
         }),
       ) as never;
-      const eff = effectiveAvailableBalances(
-        links,
-        accounts.map((a) => ({ account_id: a.id, current_balance: a.current_balance ?? 0 })),
-      );
-      const effective = cashAccounts.reduce(
-        (s, a) => s + (eff.get(a.id) ?? a.current_balance ?? 0),
-        0,
-      );
 
       const balanceById = new Map(accounts.map((a) => [a.id, a.current_balance ?? 0]));
       const goalSummaries: GoalSummary[] = (goalRows as unknown as Array<{
@@ -185,52 +181,79 @@ export default function Dashboard() {
       });
       const coverage = computeCoverageWarnings(coverageResult, (billsRes.data ?? []) as never, 0);
 
+      const catSet = new Set<string>();
+      for (const t of recent60) if (t.category) catSet.add(t.category);
+      const categorySuggestions = Array.from(catSet).sort();
+
       setData({
-        netWorth,
         cashOnHand,
-        debt,
+        obligations,
         effective,
         upcomingBills,
-        recent: txns as unknown as Array<{ id: string; merchant_name: string | null; amount: number; posted_at: string }>,
+        recent: txns as unknown as EditableTxn[],
         topGoals,
         topBudgets,
         hasBudgets: budgetList.length > 0,
         coverage,
+        categorySuggestions,
       });
     })();
-  }, [activeSpaceId, sharedView]);
+  }, [activeSpaceId, sharedView, reloadCount]);
 
-  const coverageDelta = data ? data.effective - data.cashOnHand : 0;
-  const coverageLabel = !data
-    ? ""
-    : coverageDelta === 0
-      ? "Fully funded"
-      : coverageDelta < 0
-        ? `Reserved ${Math.round((-coverageDelta / Math.max(data.cashOnHand, 1)) * 100)}% of cash for cards`
-        : "";
+  useEffect(() => {
+    if (!sharedView || !activeSpaceId) {
+      setHiddenIds(new Set());
+      return;
+    }
+    supabase
+      .from("transaction_shares")
+      .select("transaction_id")
+      .eq("space_id", activeSpaceId)
+      .eq("hidden", true)
+      .then(({ data }) => {
+        const ids = (data ?? []).map((r: { transaction_id: string }) => r.transaction_id);
+        setHiddenIds(new Set(ids));
+      });
+  }, [activeSpaceId, sharedView, reloadCount]);
+
+  const obligationsSubtitle = useMemo(() => {
+    if (!data) return "";
+    const parts: string[] = [];
+    if (data.obligations.debtCents > 0) {
+      parts.push(`$${(data.obligations.debtCents / 100).toFixed(0)} balances`);
+    }
+    if (data.obligations.upcomingBillsCents > 0) {
+      parts.push(`$${(data.obligations.upcomingBillsCents / 100).toFixed(0)} bills (30d)`);
+    }
+    return parts.join(" · ");
+  }, [data]);
 
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg, backgroundColor: colors.bg }}>
       <Card>
         <Stack gap="sm">
-          <Text variant="label">Effective Available {sharedView ? "· Shared" : "· Mine"}</Text>
+          <Text variant="label">Effective available {sharedView ? "· Shared" : "· Mine"}</Text>
           <Money cents={data?.effective ?? 0} style={{ fontSize: 36, fontWeight: "700" }} />
-          <Text variant="muted">Cash on hand minus all linked credit card balances.</Text>
-          {coverageLabel ? <Text variant="muted">{coverageLabel}</Text> : null}
+          <Text variant="muted">Cash on hand minus obligations.</Text>
         </Stack>
       </Card>
 
       <HStack gap="md">
         <Card style={{ flex: 1 }}>
           <Stack gap="xs">
-            <Text variant="label">Net Worth</Text>
-            <Money cents={data?.netWorth ?? 0} positiveColor />
+            <Text variant="label">Cash on hand</Text>
+            <Money cents={data?.cashOnHand ?? 0} positiveColor />
           </Stack>
         </Card>
         <Card style={{ flex: 1 }}>
           <Stack gap="xs">
-            <Text variant="label">Total Debt</Text>
-            <Money cents={data?.debt ?? 0} />
+            <Text variant="label">Obligations</Text>
+            <Money cents={data?.obligations.totalCents ?? 0} />
+            {obligationsSubtitle ? (
+              <Text variant="muted" style={{ fontSize: 11 }}>
+                {obligationsSubtitle}
+              </Text>
+            ) : null}
           </Stack>
         </Card>
       </HStack>
@@ -333,13 +356,18 @@ export default function Dashboard() {
         <Stack gap="md">
           <Text variant="title">Recent transactions</Text>
           {data?.recent.map((t) => (
-            <HStack key={t.id} justify="space-between" align="center">
-              <View style={{ flex: 1 }}>
-                <Text>{t.merchant_name ?? "Unknown"}</Text>
-                <Text variant="muted">{t.posted_at}</Text>
-              </View>
-              <Money cents={t.amount} positiveColor />
-            </HStack>
+            <Pressable key={t.id} onPress={() => setEditing(t)}>
+              <HStack justify="space-between" align="center">
+                <View style={{ flex: 1 }}>
+                  <Text>{displayMerchantName(t)}</Text>
+                  <Text variant="muted">
+                    {t.category ?? "Uncategorized"} · {t.posted_at}
+                    {t.pending ? " · pending" : ""}
+                  </Text>
+                </View>
+                <Money cents={t.amount} positiveColor />
+              </HStack>
+            </Pressable>
           ))}
           {data && data.recent.length === 0 ? (
             <Text variant="muted">
@@ -348,6 +376,16 @@ export default function Dashboard() {
           ) : null}
         </Stack>
       </Card>
+
+      <TransactionEditSheet
+        txn={editing}
+        spaceId={activeSpaceId}
+        sharedView={sharedView}
+        hiddenInSpace={editing ? hiddenIds.has(editing.id) : false}
+        categorySuggestions={data?.categorySuggestions ?? []}
+        onClose={() => setEditing(null)}
+        onSaved={() => setReloadCount((c) => c + 1)}
+      />
     </ScrollView>
   );
 }

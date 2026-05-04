@@ -39,6 +39,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_share_visibilities: {
+        Row: {
+          account_id: string
+          created_at: string
+          space_id: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          space_id: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          space_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_share_visibilities_account_id_space_id_fkey"
+            columns: ["account_id", "space_id"]
+            isOneToOne: false
+            referencedRelation: "account_shares"
+            referencedColumns: ["account_id", "space_id"]
+          },
+          {
+            foreignKeyName: "account_share_visibilities_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       account_shares: {
         Row: {
           account_id: string
@@ -481,6 +517,41 @@ export type Database = {
           },
         ]
       }
+      merchant_renames: {
+        Row: {
+          created_at: string
+          display_name: string
+          id: string
+          normalized_merchant: string
+          owner_user_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          id?: string
+          normalized_merchant: string
+          owner_user_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          id?: string
+          normalized_merchant?: string
+          owner_user_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchant_renames_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           created_at: string
@@ -843,6 +914,7 @@ export type Database = {
           amount: number
           category: string | null
           created_at: string
+          display_name: string | null
           id: string
           is_recurring: boolean
           merchant_name: string | null
@@ -860,6 +932,7 @@ export type Database = {
           amount: number
           category?: string | null
           created_at?: string
+          display_name?: string | null
           id?: string
           is_recurring?: boolean
           merchant_name?: string | null
@@ -877,6 +950,7 @@ export type Database = {
           amount?: number
           category?: string | null
           created_at?: string
+          display_name?: string | null
           id?: string
           is_recurring?: boolean
           merchant_name?: string | null

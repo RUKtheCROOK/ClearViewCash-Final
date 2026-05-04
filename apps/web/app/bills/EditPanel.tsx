@@ -8,6 +8,7 @@ import {
   getTransactionsByRecurringGroup,
   upsertBill,
 } from "@cvc/api-client";
+import { displayMerchantName } from "@cvc/domain";
 import type { Cadence } from "@cvc/types";
 
 export interface EditableBill {
@@ -34,6 +35,7 @@ interface PaymentRow {
 interface MatchedTxn {
   id: string;
   merchant_name: string | null;
+  display_name: string | null;
   amount: number;
   posted_at: string;
 }
@@ -297,7 +299,7 @@ export function EditPanel({ client, bill, open, spaceId, ownerUserId, onClose, o
                   }}
                 >
                   <span>
-                    {t.merchant_name ?? "Unknown"}
+                    {displayMerchantName(t)}
                     <span className="muted" style={{ marginLeft: 8 }}>{t.posted_at}</span>
                   </span>
                   <span>{fmtMoney(t.amount)}</span>

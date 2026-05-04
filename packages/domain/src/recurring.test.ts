@@ -10,6 +10,7 @@ const tx = (over: Partial<Transaction>): Transaction => ({
   posted_at: over.posted_at ?? "2026-01-01",
   amount: over.amount ?? -50_00,
   merchant_name: over.merchant_name ?? "Netflix",
+  display_name: null,
   category: null,
   subcategory: null,
   note: null,

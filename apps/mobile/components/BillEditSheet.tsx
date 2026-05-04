@@ -7,6 +7,7 @@ import {
   getTransactionsByRecurringGroup,
   upsertBill,
 } from "@cvc/api-client";
+import { displayMerchantName } from "@cvc/domain";
 import type { Cadence } from "@cvc/types";
 import { supabase } from "../lib/supabase";
 
@@ -34,6 +35,7 @@ interface PaymentRow {
 interface MatchedTxn {
   id: string;
   merchant_name: string | null;
+  display_name: string | null;
   amount: number;
   posted_at: string;
 }
@@ -332,7 +334,7 @@ export function BillEditSheet({ visible, bill, spaceId, ownerUserId, onClose, on
                     >
                       <HStack justify="space-between" align="center">
                         <Stack gap="xs" style={{ flex: 1, marginRight: space.md }}>
-                          <Text style={{ fontSize: 13 }}>{t.merchant_name ?? "Unknown"}</Text>
+                          <Text style={{ fontSize: 13 }}>{displayMerchantName(t)}</Text>
                           <Text variant="muted" style={{ fontSize: 11 }}>{t.posted_at}</Text>
                         </Stack>
                         <Money cents={t.amount} />

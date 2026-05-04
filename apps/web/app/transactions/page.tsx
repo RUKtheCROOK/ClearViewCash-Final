@@ -10,6 +10,7 @@ import {
   getMySpaces,
   getTransactionsForView,
 } from "@cvc/api-client";
+import { displayMerchantName } from "@cvc/domain";
 import { EditPanel } from "./EditPanel";
 import { SuggestionsBanner } from "./SuggestionsBanner";
 
@@ -21,6 +22,7 @@ const supabase = createClient<Database>(
 interface Txn {
   id: string;
   merchant_name: string | null;
+  display_name: string | null;
   amount: number;
   posted_at: string;
   category: string | null;
@@ -170,7 +172,7 @@ export default function TransactionsPage() {
       if (status === "pending" && !t.pending) return false;
       if (status === "completed" && t.pending) return false;
       if (recurringOnly && !t.is_recurring) return false;
-      if (search && !(t.merchant_name ?? "").toLowerCase().includes(search.toLowerCase())) return false;
+      if (search && !displayMerchantName(t).toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
   }, [txns, status, recurringOnly, search]);
@@ -398,7 +400,7 @@ export default function TransactionsPage() {
                 }}
               >
                 <div>
-                  <div>{t.merchant_name ?? "Unknown"}</div>
+                  <div>{displayMerchantName(t)}</div>
                   <div className="muted" style={{ fontSize: 13 }}>
                     {t.category ?? "Uncategorized"} · {t.posted_at}
                     {t.pending ? " · pending" : ""}

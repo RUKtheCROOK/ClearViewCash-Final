@@ -2,17 +2,21 @@ import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, Switch, TextInput, View } from "react-native";
 import { HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
 import {
+  renameVendor,
+  setTransactionDisplayName,
   setTransactionNote,
   setTransactionRecurring,
   setTransactionShare,
   updateTransactionCategory,
 } from "@cvc/api-client";
+import { displayMerchantName } from "@cvc/domain";
 import { supabase } from "../lib/supabase";
 import { TransactionSplitEditor } from "./TransactionSplitEditor";
 
 export interface EditableTxn {
   id: string;
   merchant_name: string | null;
+  display_name: string | null;
   amount: number;
   posted_at: string;
   category: string | null;
@@ -42,6 +46,8 @@ export function TransactionEditSheet({
   onClose,
   onSaved,
 }: Props) {
+  const [name, setName] = useState<string>("");
+  const [applyToVendor, setApplyToVendor] = useState(false);
   const [category, setCategory] = useState<string>("");
   const [note, setNote] = useState<string>("");
   const [recurring, setRecurring] = useState(false);
@@ -52,6 +58,8 @@ export function TransactionEditSheet({
 
   useEffect(() => {
     if (!txn) return;
+    setName(displayMerchantName(txn));
+    setApplyToVendor(false);
     setCategory(txn.category ?? "");
     setNote(txn.note ?? "");
     setRecurring(txn.is_recurring);
@@ -72,6 +80,16 @@ export function TransactionEditSheet({
     setSaving(true);
     setError(null);
     try {
+      const trimmedName = name.trim();
+      const currentDisplay = displayMerchantName(txn);
+      if (trimmedName !== currentDisplay) {
+        const next = trimmedName.length && trimmedName !== (txn.merchant_name ?? "") ? trimmedName : null;
+        if (applyToVendor && txn.merchant_name) {
+          await renameVendor(supabase, { merchant_name: txn.merchant_name, display_name: next });
+        } else {
+          await setTransactionDisplayName(supabase, { id: txn.id, display_name: next });
+        }
+      }
       const trimmedCategory = category.trim();
       const newCategory = trimmedCategory.length ? trimmedCategory : null;
       if (newCategory !== (txn.category ?? null)) {
@@ -121,7 +139,7 @@ export function TransactionEditSheet({
             <Stack gap="md">
               <HStack justify="space-between" align="center">
                 <Stack gap="xs">
-                  <Text variant="title">{txn.merchant_name ?? "Unknown"}</Text>
+                  <Text variant="title">{displayMerchantName(txn)}</Text>
                   <Text variant="muted">
                     {txn.posted_at}
                     {txn.pending ? " · pending" : ""}
@@ -129,6 +147,35 @@ export function TransactionEditSheet({
                 </Stack>
                 <Money cents={txn.amount} positiveColor />
               </HStack>
+
+              <Stack gap="sm">
+                <Text variant="muted" style={{ fontSize: 12 }}>
+                  Name
+                </Text>
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder={txn.merchant_name ?? "Transaction name"}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    padding: space.md,
+                    backgroundColor: colors.surface,
+                  }}
+                />
+                {txn.merchant_name ? (
+                  <HStack justify="space-between" align="center">
+                    <Stack gap="xs" style={{ flex: 1, marginRight: space.md }}>
+                      <Text>Apply to all from {txn.merchant_name}</Text>
+                      <Text variant="muted" style={{ fontSize: 12 }}>
+                        Renames every past and future transaction from this vendor.
+                      </Text>
+                    </Stack>
+                    <Switch value={applyToVendor} onValueChange={setApplyToVendor} />
+                  </HStack>
+                ) : null}
+              </Stack>
 
               <Stack gap="sm">
                 <Text variant="muted" style={{ fontSize: 12 }}>

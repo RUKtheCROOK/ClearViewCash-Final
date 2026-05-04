@@ -14,9 +14,10 @@ import { getAccountsForView } from "@cvc/api-client";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
 import { useTier } from "../../hooks/useTier";
-import { ForecastChart } from "../../components/ForecastChart";
+import { ForecastChart, type ForecastChartType } from "../../components/ForecastChart";
 import { WhatIfPanel } from "../../components/WhatIfPanel";
 import { CoverageStatusCard } from "../../components/CoverageStatusCard";
+import { DayDetailSheet } from "../../components/DayDetailSheet";
 
 const HORIZON_DAYS = 60;
 
@@ -39,6 +40,10 @@ export default function Forecast() {
   const [granularity, setGranularity] = useState<ForecastGranularity>("daily");
   const [chartWidth, setChartWidth] = useState(0);
   const [mutations, setMutations] = useState<WhatIfMutation[]>([]);
+  const [chartType, setChartType] = useState<ForecastChartType>("bars");
+  const [expanded, setExpanded] = useState(false);
+  const [selectedBucketIndex, setSelectedBucketIndex] = useState<number | null>(null);
+  const [accountsById, setAccountsById] = useState<Record<string, string>>({});
 
   const onChartLayout = (e: LayoutChangeEvent) => {
     setChartWidth(e.nativeEvent.layout.width);
@@ -69,8 +74,20 @@ export default function Forecast() {
         cards: (cardsRes.data ?? []).filter((c: { payment_link_id: string }) => c.payment_link_id === pl.id),
       }));
 
-      const fundingBalances = fundingAccounts.map((a) => ({ account_id: a.id, current_balance: a.current_balance ?? 0 }));
-      const cardBalances = cardAccounts.map((a) => ({ account_id: a.id, current_balance: a.current_balance ?? 0 }));
+      const fundingBalances = fundingAccounts.map((a) => ({
+        account_id: a.id,
+        current_balance: a.current_balance ?? 0,
+        name: a.name ?? undefined,
+      }));
+      const cardBalances = cardAccounts.map((a) => ({
+        account_id: a.id,
+        current_balance: a.current_balance ?? 0,
+        name: a.name ?? undefined,
+      }));
+
+      const namesById: Record<string, string> = {};
+      for (const a of accounts) namesById[a.id] = a.name ?? "Account";
+      setAccountsById(namesById);
 
       const allocations = allocatePaymentLinks(links as never, [...fundingBalances, ...cardBalances]);
       const reservedByFunding = new Map<string, number>();
@@ -134,6 +151,10 @@ export default function Forecast() {
     return aggregateForecast(result.days, granularity);
   }, [result, granularity]);
 
+  useEffect(() => {
+    setSelectedBucketIndex(null);
+  }, [granularity, activeSpaceId]);
+
   const scenarioResult = useMemo(() => {
     if (!forecastInput || mutations.length === 0) return null;
     return forecast(applyWhatIf(forecastInput, mutations));
@@ -184,6 +205,7 @@ export default function Forecast() {
   }
 
   return (
+    <>
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
       <Card>
         <Stack gap="sm">
@@ -253,8 +275,26 @@ export default function Forecast() {
 
       <Card padded={false}>
         <Stack gap="sm" style={{ padding: space.lg }}>
-          <HStack justify="space-between" align="center">
+          <HStack justify="space-between" align="center" wrap>
             <Text variant="title">Timeline</Text>
+            <Pressable
+              onPress={() => setExpanded((e) => !e)}
+              style={{
+                paddingHorizontal: space.md,
+                paddingVertical: space.xs,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "600", color: colors.textMuted }}>
+                {expanded ? "Collapse" : "Expand"}
+              </Text>
+            </Pressable>
+          </HStack>
+          <HStack gap="sm" wrap>
+            <ChartTypeToggle value={chartType} onChange={setChartType} />
             <GranularityToggle value={granularity} onChange={setGranularity} />
           </HStack>
         </Stack>
@@ -264,6 +304,10 @@ export default function Forecast() {
             compareBuckets={scenarioBuckets.length ? scenarioBuckets : undefined}
             compareLabel="With scenarios"
             width={chartWidth}
+            chartType={chartType}
+            expanded={expanded}
+            selectedIndex={selectedBucketIndex}
+            onSelectBucket={(_, i) => setSelectedBucketIndex(i)}
           />
         </View>
       </Card>
@@ -343,6 +387,12 @@ export default function Forecast() {
         })}
       </Card>
     </ScrollView>
+    <DayDetailSheet
+      bucket={selectedBucketIndex != null ? buckets[selectedBucketIndex] ?? null : null}
+      accountsById={accountsById}
+      onClose={() => setSelectedBucketIndex(null)}
+    />
+    </>
   );
 }
 
@@ -351,6 +401,59 @@ const GRANULARITIES: Array<{ key: ForecastGranularity; label: string }> = [
   { key: "weekly", label: "Week" },
   { key: "monthly", label: "Month" },
 ];
+
+const CHART_TYPES: Array<{ key: ForecastChartType; label: string }> = [
+  { key: "bars", label: "Bars" },
+  { key: "line", label: "Line" },
+  { key: "flows", label: "Flows" },
+];
+
+function ChartTypeToggle({
+  value,
+  onChange,
+}: {
+  value: ForecastChartType;
+  onChange: (t: ForecastChartType) => void;
+}) {
+  return (
+    <HStack
+      gap="xs"
+      style={{
+        backgroundColor: colors.bg,
+        borderRadius: radius.pill,
+        padding: 2,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      {CHART_TYPES.map((t) => {
+        const active = t.key === value;
+        return (
+          <Pressable
+            key={t.key}
+            onPress={() => onChange(t.key)}
+            style={{
+              paddingHorizontal: space.md,
+              paddingVertical: space.xs,
+              borderRadius: radius.pill,
+              backgroundColor: active ? colors.primary : "transparent",
+            }}
+          >
+            <Text
+              style={{
+                color: active ? colors.surface : colors.textMuted,
+                fontSize: 12,
+                fontWeight: "600",
+              }}
+            >
+              {t.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </HStack>
+  );
+}
 
 function GranularityToggle({
   value,

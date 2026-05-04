@@ -3,6 +3,7 @@ import type { MoneyCents, PaymentLink, Uuid } from "@cvc/types";
 export interface AccountBalance {
   account_id: Uuid;
   current_balance: MoneyCents;
+  name?: string;
 }
 
 export interface PaymentLinkAllocation {

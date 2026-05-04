@@ -84,7 +84,7 @@ export async function getTransactionsForView(
 ) {
   const fields =
     opts.fields ??
-    "id, merchant_name, amount, posted_at, category, pending, is_recurring, account_id, owner_user_id, note";
+    "id, merchant_name, display_name, amount, posted_at, category, pending, is_recurring, account_id, owner_user_id, note";
   const limit = opts.limit ?? 100;
 
   if (opts.sharedView && opts.spaceId) {
@@ -199,6 +199,27 @@ export async function getSharesForAccount(client: CvcSupabaseClient, accountId: 
   return data ?? [];
 }
 
+/**
+ * Returns the per-(account, space) visibility allowlist of user_ids.
+ * An empty array means "everyone in the space" (the default — no rows).
+ * A non-empty array means only those users + the account owner can see
+ * the share. Account owner sees all visibility rows for their accounts;
+ * non-owners only ever see their own row.
+ */
+export async function getShareVisibility(
+  client: CvcSupabaseClient,
+  accountId: string,
+  spaceId: string,
+): Promise<string[]> {
+  const { data, error } = await client
+    .from("account_share_visibilities")
+    .select("user_id")
+    .eq("account_id", accountId)
+    .eq("space_id", spaceId);
+  if (error) throw error;
+  return (data ?? []).map((r: { user_id: string }) => r.user_id);
+}
+
 export async function getAccount(client: CvcSupabaseClient, accountId: string) {
   const { data, error } = await client
     .from("accounts")
@@ -290,7 +311,7 @@ export async function getTransactionsByRecurringGroup(
 ) {
   const { data, error } = await client
     .from("transactions")
-    .select("id, merchant_name, amount, posted_at, account_id, category")
+    .select("id, merchant_name, display_name, amount, posted_at, account_id, category")
     .eq("recurring_group_id", recurringGroupId)
     .order("posted_at", { ascending: false })
     .limit(opts.limit ?? 12);

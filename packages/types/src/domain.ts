@@ -69,6 +69,7 @@ export const TransactionSchema = z.object({
   posted_at: z.string(),
   amount: MoneyCentsSchema,
   merchant_name: z.string().nullable(),
+  display_name: z.string().nullable(),
   category: z.string().nullable(),
   subcategory: z.string().nullable(),
   note: z.string().nullable(),
