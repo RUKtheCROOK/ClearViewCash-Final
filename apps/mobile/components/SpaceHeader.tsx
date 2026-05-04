@@ -2,17 +2,20 @@ import { Pressable, View } from "react-native";
 import { router } from "expo-router";
 import { Text, HStack, colors, radius, space } from "@cvc/ui";
 import { useSpaces } from "../hooks/useSpaces";
+import { useUnreadNotifications } from "../hooks/useUnreadNotifications";
 import { useApp } from "../lib/store";
 
 /**
  * Sticky header — shown on every tab. Renders space switcher pill (tinted by
- * active space), the My View ⇄ Shared View toggle, and the settings gear.
+ * active space), the My View ⇄ Shared View toggle, the notification bell,
+ * and the settings gear.
  */
 export function SpaceHeader() {
   const { activeSpace, spaces } = useSpaces();
   const sharedView = useApp((s) => s.sharedView);
   const toggleView = useApp((s) => s.toggleView);
   const setActive = useApp((s) => s.setActiveSpace);
+  const unread = useUnreadNotifications();
 
   function cycleSpace() {
     if (spaces.length < 2 || !activeSpace) return;
@@ -48,6 +51,31 @@ export function SpaceHeader() {
             <Text style={{ color: "#fff", fontWeight: "500" }}>
               {sharedView ? "Shared View" : "My View"} ⇄
             </Text>
+          </Pressable>
+          <Pressable onPress={() => router.push("/settings/notifications")} hitSlop={10}>
+            <View>
+              <Text style={{ color: "#fff", fontSize: 18 }}>🔔</Text>
+              {unread > 0 ? (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    right: -8,
+                    minWidth: 16,
+                    height: 16,
+                    borderRadius: 8,
+                    backgroundColor: colors.negative,
+                    paddingHorizontal: 4,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+                    {unread > 9 ? "9+" : unread}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </Pressable>
           <Pressable onPress={() => router.push("/settings")} hitSlop={10}>
             <Text style={{ color: "#fff", fontSize: 18 }}>⚙</Text>

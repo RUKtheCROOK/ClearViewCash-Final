@@ -78,7 +78,7 @@ export const TransactionSchema = z.object({
 });
 export type Transaction = z.infer<typeof TransactionSchema>;
 
-export const CadenceSchema = z.enum(["monthly", "weekly", "biweekly", "yearly", "custom"]);
+export const CadenceSchema = z.enum(["monthly", "weekly", "biweekly", "yearly", "custom", "once"]);
 export type Cadence = z.infer<typeof CadenceSchema>;
 
 export const BillSchema = z.object({
@@ -97,7 +97,10 @@ export const BillSchema = z.object({
 });
 export type Bill = z.infer<typeof BillSchema>;
 
-export const IncomeEventSchema = BillSchema.extend({});
+export const IncomeEventSchema = BillSchema.extend({
+  actual_amount: MoneyCentsSchema.nullable(),
+  received_at: IsoDateSchema.nullable(),
+});
 export type IncomeEvent = z.infer<typeof IncomeEventSchema>;
 
 export const PaymentLinkCardSchema = z.object({
@@ -133,6 +136,7 @@ export const GoalSchema = z.object({
   kind: z.enum(["save", "payoff"]),
   name: z.string(),
   target_amount: MoneyCentsSchema,
+  starting_amount: MoneyCentsSchema.nullable(),
   target_date: IsoDateSchema.nullable(),
   linked_account_id: UuidSchema.nullable(),
   monthly_contribution: MoneyCentsSchema.nullable(),

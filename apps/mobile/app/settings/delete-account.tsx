@@ -12,18 +12,27 @@ import { supabase } from "../../lib/supabase";
 export default function DeleteAccount() {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function performDelete() {
     setLoading(true);
-    // Calls a Supabase Edge Function (not yet implemented in V1 — placeholder).
-    // The function should: revoke Plaid items, cancel Stripe sub, delete user.
-    const { data: { session } } = await supabase.auth.getSession();
-    await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/delete-account`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
-    });
-    await supabase.auth.signOut();
-    router.replace("/(auth)/sign-in");
+    setError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/delete-account`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail ?? body.error ?? `HTTP ${res.status}`);
+      }
+      await supabase.auth.signOut();
+      router.replace("/(auth)/sign-in");
+    } catch (e) {
+      setError((e as Error).message);
+      setLoading(false);
+    }
   }
 
   return (
@@ -44,6 +53,7 @@ export default function DeleteAccount() {
               </Text>
               <Button label="Delete my account" variant="destructive" onPress={performDelete} loading={loading} />
               <Button label="Cancel" variant="ghost" onPress={() => setConfirming(false)} />
+              {error ? <Text style={{ color: colors.negative }}>{error}</Text> : null}
             </Stack>
           )}
         </Stack>

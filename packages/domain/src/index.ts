@@ -2,3 +2,8 @@ export * from "./payment-links";
 export * from "./forecast";
 export * from "./recurring";
 export * from "./categorize";
+export * from "./bills";
+export * from "./budgets";
+export * from "./goals";
+export * from "./reports";
+export * from "./export";

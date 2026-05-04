@@ -75,6 +75,10 @@ export async function syncPlaidItem(itemRowId: string): Promise<SyncResult> {
     }
 
     await supa.from("plaid_items").update({ cursor, status: "good" }).eq("id", item.id);
+    await supa
+      .from("accounts")
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq("plaid_item_id", item.id);
     await runRecurringDetection(item.owner_user_id);
     return { added, modified, removed, cursor };
   } catch (e) {

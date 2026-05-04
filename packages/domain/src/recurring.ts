@@ -1,4 +1,4 @@
-import { differenceInDays, parseISO } from "date-fns";
+import { addDays, addMonths, addYears, differenceInDays, format, parseISO } from "date-fns";
 import type { Cadence, MoneyCents, Transaction, Uuid } from "@cvc/types";
 
 export interface RecurringGroup {
@@ -77,6 +77,38 @@ export function normalizeMerchant(name: string): string {
     .replace(/#\w+/g, "")
     .replace(/[^a-z0-9]/g, "")
     .trim();
+}
+
+/**
+ * Project the next occurrence ISO date (YYYY-MM-DD) given the last seen date
+ * and a cadence. "custom" falls back to monthly because that's the most common
+ * cadence for unclassified recurring patterns.
+ */
+export function nextDueFromCadence(lastSeenIso: string, cadence: Cadence): string {
+  const last = parseISO(lastSeenIso);
+  let next: Date;
+  switch (cadence) {
+    case "weekly":
+      next = addDays(last, 7);
+      break;
+    case "biweekly":
+      next = addDays(last, 14);
+      break;
+    case "yearly":
+      next = addYears(last, 1);
+      break;
+    case "once":
+      // One-time events do not recur; callers should not advance the cycle.
+      // We return the input date unchanged for safety.
+      next = last;
+      break;
+    case "monthly":
+    case "custom":
+    default:
+      next = addMonths(last, 1);
+      break;
+  }
+  return format(next, "yyyy-MM-dd");
 }
 
 function inferCadence(gaps: number[]): Cadence | null {
