@@ -7,7 +7,7 @@
 
 import { adminClient } from "./supabase-admin.ts";
 import { plaidAmountToCents, plaidClient } from "./plaid.ts";
-import { detectRecurring } from "./recurring.ts";
+import { detectRecurring, normalizeMerchant } from "./recurring.ts";
 import { categorizeFromPlaid } from "./categorize.ts";
 
 export interface SyncResult {
@@ -62,6 +62,7 @@ export async function syncPlaidItem(itemRowId: string): Promise<SyncResult> {
           .from("transactions")
           .upsert(upserts, { onConflict: "plaid_transaction_id" });
         if (error) throw error;
+        await applyRenameRules(item.owner_user_id, upserts.map((u) => u.plaid_transaction_id));
       }
 
       if (res.data.removed.length) {
@@ -75,6 +76,10 @@ export async function syncPlaidItem(itemRowId: string): Promise<SyncResult> {
     }
 
     await supa.from("plaid_items").update({ cursor, status: "good" }).eq("id", item.id);
+    await supa
+      .from("accounts")
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq("plaid_item_id", item.id);
     await runRecurringDetection(item.owner_user_id);
     return { added, modified, removed, cursor };
   } catch (e) {
@@ -91,6 +96,44 @@ async function mapPlaidAccountIds(itemRowId: string): Promise<Map<string, string
   const m = new Map<string, string>();
   for (const a of data ?? []) m.set(a.plaid_account_id, a.id);
   return m;
+}
+
+/**
+ * Apply the user's saved vendor-rename rules to the rows we just synced.
+ * Scoped to the freshly upserted plaid_transaction_ids so we never rewrite
+ * the whole table on every sync. New rows whose merchant_name normalizes
+ * to a stored rule key inherit that rule's display_name.
+ */
+async function applyRenameRules(ownerUserId: string, plaidTxnIds: string[]): Promise<void> {
+  if (plaidTxnIds.length === 0) return;
+  const supa = adminClient();
+  const { data: rules } = await supa
+    .from("merchant_renames")
+    .select("normalized_merchant, display_name")
+    .eq("owner_user_id", ownerUserId);
+  if (!rules || rules.length === 0) return;
+  const ruleMap = new Map<string, string>();
+  for (const r of rules) ruleMap.set(r.normalized_merchant, r.display_name);
+
+  const { data: rows } = await supa
+    .from("transactions")
+    .select("id, merchant_name")
+    .in("plaid_transaction_id", plaidTxnIds);
+  if (!rows) return;
+
+  const updates = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.merchant_name) continue;
+    const display = ruleMap.get(normalizeMerchant(row.merchant_name));
+    if (!display) continue;
+    const ids = updates.get(display) ?? [];
+    ids.push(row.id);
+    updates.set(display, ids);
+  }
+
+  for (const [display, ids] of updates) {
+    await supa.from("transactions").update({ display_name: display }).in("id", ids);
+  }
 }
 
 async function runRecurringDetection(ownerUserId: string): Promise<void> {

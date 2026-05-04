@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -39,6 +39,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_share_visibilities: {
+        Row: {
+          account_id: string
+          created_at: string
+          space_id: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          space_id: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          space_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_share_visibilities_account_id_space_id_fkey"
+            columns: ["account_id", "space_id"]
+            isOneToOne: false
+            referencedRelation: "account_shares"
+            referencedColumns: ["account_id", "space_id"]
+          },
+          {
+            foreignKeyName: "account_share_visibilities_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       account_shares: {
         Row: {
           account_id: string
@@ -85,6 +121,7 @@ export type Database = {
           currency: string
           current_balance: number | null
           id: string
+          last_synced_at: string | null
           mask: string | null
           name: string
           owner_user_id: string
@@ -100,6 +137,7 @@ export type Database = {
           currency?: string
           current_balance?: number | null
           id?: string
+          last_synced_at?: string | null
           mask?: string | null
           name: string
           owner_user_id: string
@@ -115,6 +153,7 @@ export type Database = {
           currency?: string
           current_balance?: number | null
           id?: string
+          last_synced_at?: string | null
           mask?: string | null
           name?: string
           owner_user_id?: string
@@ -306,6 +345,7 @@ export type Database = {
           monthly_contribution: number | null
           name: string
           space_id: string
+          starting_amount: number | null
           target_amount: number
           target_date: string | null
           updated_at: string
@@ -318,6 +358,7 @@ export type Database = {
           monthly_contribution?: number | null
           name: string
           space_id: string
+          starting_amount?: number | null
           target_amount: number
           target_date?: string | null
           updated_at?: string
@@ -330,6 +371,7 @@ export type Database = {
           monthly_contribution?: number | null
           name?: string
           space_id?: string
+          starting_amount?: number | null
           target_amount?: number
           target_date?: string | null
           updated_at?: string
@@ -353,6 +395,7 @@ export type Database = {
       }
       income_events: {
         Row: {
+          actual_amount: number | null
           amount: number
           autopay: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
@@ -363,12 +406,14 @@ export type Database = {
           name: string
           next_due_at: string
           owner_user_id: string
+          received_at: string | null
           recurring_group_id: string | null
           source: Database["public"]["Enums"]["bill_source_t"]
           space_id: string
           updated_at: string
         }
         Insert: {
+          actual_amount?: number | null
           amount: number
           autopay?: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
@@ -379,12 +424,14 @@ export type Database = {
           name: string
           next_due_at: string
           owner_user_id: string
+          received_at?: string | null
           recurring_group_id?: string | null
           source?: Database["public"]["Enums"]["bill_source_t"]
           space_id: string
           updated_at?: string
         }
         Update: {
+          actual_amount?: number | null
           amount?: number
           autopay?: boolean
           cadence?: Database["public"]["Enums"]["cadence_t"]
@@ -395,6 +442,7 @@ export type Database = {
           name?: string
           next_due_at?: string
           owner_user_id?: string
+          received_at?: string | null
           recurring_group_id?: string | null
           source?: Database["public"]["Enums"]["bill_source_t"]
           space_id?: string
@@ -465,6 +513,41 @@ export type Database = {
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      merchant_renames: {
+        Row: {
+          created_at: string
+          display_name: string
+          id: string
+          normalized_merchant: string
+          owner_user_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          id?: string
+          normalized_merchant: string
+          owner_user_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          id?: string
+          normalized_merchant?: string
+          owner_user_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "merchant_renames_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -831,6 +914,7 @@ export type Database = {
           amount: number
           category: string | null
           created_at: string
+          display_name: string | null
           id: string
           is_recurring: boolean
           merchant_name: string | null
@@ -848,6 +932,7 @@ export type Database = {
           amount: number
           category?: string | null
           created_at?: string
+          display_name?: string | null
           id?: string
           is_recurring?: boolean
           merchant_name?: string | null
@@ -865,6 +950,7 @@ export type Database = {
           amount?: number
           category?: string | null
           created_at?: string
+          display_name?: string | null
           id?: string
           is_recurring?: boolean
           merchant_name?: string | null
@@ -956,7 +1042,13 @@ export type Database = {
       bill_payment_status_t: "paid" | "overdue" | "skipped"
       bill_source_t: "detected" | "manual"
       budget_period_t: "monthly" | "weekly"
-      cadence_t: "monthly" | "weekly" | "biweekly" | "yearly" | "custom"
+      cadence_t:
+        | "monthly"
+        | "weekly"
+        | "biweekly"
+        | "yearly"
+        | "custom"
+        | "once"
       goal_kind_t: "save" | "payoff"
       space_kind_t: "personal" | "shared"
       space_role_t: "owner" | "member"
@@ -1545,7 +1637,7 @@ export const Constants = {
       bill_payment_status_t: ["paid", "overdue", "skipped"],
       bill_source_t: ["detected", "manual"],
       budget_period_t: ["monthly", "weekly"],
-      cadence_t: ["monthly", "weekly", "biweekly", "yearly", "custom"],
+      cadence_t: ["monthly", "weekly", "biweekly", "yearly", "custom", "once"],
       goal_kind_t: ["save", "payoff"],
       space_kind_t: ["personal", "shared"],
       space_role_t: ["owner", "member"],
