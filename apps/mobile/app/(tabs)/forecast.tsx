@@ -13,6 +13,8 @@ import type { ForecastGranularity, ForecastInput, ForecastResult, WhatIfMutation
 import { getAccountsForView } from "@cvc/api-client";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
+import { useEffectiveSharedView } from "../../lib/view";
+import { useSpaces } from "../../hooks/useSpaces";
 import { useTier } from "../../hooks/useTier";
 import { ForecastChart, type ForecastChartType } from "../../components/ForecastChart";
 import { WhatIfPanel } from "../../components/WhatIfPanel";
@@ -31,7 +33,8 @@ interface FundingAccountSummary {
 
 export default function Forecast() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const sharedView = useApp((s) => s.sharedView);
+  const { activeSpace } = useSpaces();
+  const { sharedView, restrictToOwnerId } = useEffectiveSharedView(activeSpace);
   const { canForecast, tier } = useTier();
   const [result, setResult] = useState<ForecastResult | null>(null);
   const [forecastInput, setForecastInput] = useState<ForecastInput | null>(null);
@@ -41,7 +44,7 @@ export default function Forecast() {
   const [chartWidth, setChartWidth] = useState(0);
   const [mutations, setMutations] = useState<WhatIfMutation[]>([]);
   const [chartType, setChartType] = useState<ForecastChartType>("bars");
-  const [expanded, setExpanded] = useState(false);
+  const [resetSignal, setResetSignal] = useState(0);
   const [selectedBucketIndex, setSelectedBucketIndex] = useState<number | null>(null);
   const [accountsById, setAccountsById] = useState<Record<string, string>>({});
 
@@ -56,7 +59,7 @@ export default function Forecast() {
       since30.setUTCDate(since30.getUTCDate() - 30);
       const since30Iso = since30.toISOString().slice(0, 10);
       const [accounts, billsRes, incomeRes, linksRes, cardsRes, cardTxnsRes] = await Promise.all([
-        getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView }),
+        getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView, restrictToOwnerId }),
         supabase.from("bills").select("*").eq("space_id", activeSpaceId),
         supabase.from("income_events").select("*").eq("space_id", activeSpaceId),
         supabase.from("payment_links").select("*"),
@@ -131,7 +134,7 @@ export default function Forecast() {
       const userRes = await supabase.auth.getUser();
       setOwnerUserId(userRes.data.user?.id ?? null);
     })();
-  }, [activeSpaceId, sharedView]);
+  }, [activeSpaceId, sharedView, restrictToOwnerId]);
 
   const min = useMemo(() => {
     if (!result || result.days.length === 0) return null;
@@ -278,7 +281,8 @@ export default function Forecast() {
           <HStack justify="space-between" align="center" wrap>
             <Text variant="title">Timeline</Text>
             <Pressable
-              onPress={() => setExpanded((e) => !e)}
+              onPress={() => setResetSignal((s) => s + 1)}
+              accessibilityLabel="Reset zoom"
               style={{
                 paddingHorizontal: space.md,
                 paddingVertical: space.xs,
@@ -289,7 +293,7 @@ export default function Forecast() {
               }}
             >
               <Text style={{ fontSize: 12, fontWeight: "600", color: colors.textMuted }}>
-                {expanded ? "Collapse" : "Expand"}
+                Reset zoom
               </Text>
             </Pressable>
           </HStack>
@@ -305,9 +309,9 @@ export default function Forecast() {
             compareLabel="With scenarios"
             width={chartWidth}
             chartType={chartType}
-            expanded={expanded}
             selectedIndex={selectedBucketIndex}
             onSelectBucket={(_, i) => setSelectedBucketIndex(i)}
+            resetSignal={resetSignal}
           />
         </View>
       </Card>

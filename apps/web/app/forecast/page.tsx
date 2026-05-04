@@ -20,6 +20,7 @@ import {
   type WhatIfMutation,
 } from "@cvc/domain";
 import { getAccountsForView, getMySpaces } from "@cvc/api-client";
+import { effectiveSharedView, type SpaceMember } from "../../lib/view";
 import { ForecastChart, type ForecastChartType } from "./ForecastChart";
 import { WhatIfPanel } from "./WhatIfPanel";
 import { CoverageStatusCard } from "./CoverageStatusCard";
@@ -33,7 +34,7 @@ const supabase = createClient<Database>(
 interface SpaceRow {
   id: string;
   name: string;
-  kind: "personal" | "shared";
+  members?: SpaceMember[];
 }
 
 interface FundingAccountSummary {
@@ -58,8 +59,17 @@ export default function ForecastPage() {
   const [tier, setTier] = useState<Tier>("starter");
   const [spaces, setSpaces] = useState<SpaceRow[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
-  const [sharedView, setSharedView] = useState(false);
+  const [rawSharedView] = useState(false);
   const [ownerUserId, setOwnerUserId] = useState<string | null>(null);
+
+  const activeSpace = useMemo(
+    () => spaces.find((s) => s.id === activeSpaceId) ?? null,
+    [spaces, activeSpaceId],
+  );
+  const { sharedView, restrictToOwnerId } = useMemo(
+    () => effectiveSharedView(activeSpace, rawSharedView, ownerUserId),
+    [activeSpace, rawSharedView, ownerUserId],
+  );
 
   const [forecastInput, setForecastInput] = useState<ForecastInput | null>(null);
   const [result, setResult] = useState<ForecastResult | null>(null);
@@ -67,7 +77,7 @@ export default function ForecastPage() {
   const [granularity, setGranularity] = useState<ForecastGranularity>("daily");
   const [mutations, setMutations] = useState<WhatIfMutation[]>([]);
   const [chartType, setChartType] = useState<ForecastChartType>("bars");
-  const [expanded, setExpanded] = useState(false);
+  const [resetSignal, setResetSignal] = useState(0);
   const [selectedBucketIndex, setSelectedBucketIndex] = useState<number | null>(null);
   const [accountsById, setAccountsById] = useState<Record<string, string>>({});
 
@@ -106,7 +116,7 @@ export default function ForecastPage() {
       since30.setUTCDate(since30.getUTCDate() - 30);
       const since30Iso = since30.toISOString().slice(0, 10);
       const [accounts, billsRes, incomeRes, linksRes, cardsRes, cardTxnsRes] = await Promise.all([
-        getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView }),
+        getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView, restrictToOwnerId }),
         supabase.from("bills").select("*").eq("space_id", activeSpaceId),
         supabase.from("income_events").select("*").eq("space_id", activeSpaceId),
         supabase.from("payment_links").select("*"),
@@ -189,7 +199,7 @@ export default function ForecastPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeSpaceId, sharedView, canForecast]);
+  }, [activeSpaceId, sharedView, restrictToOwnerId, canForecast]);
 
   const buckets: ForecastBucket[] = useMemo(() => {
     if (!result) return [];
@@ -338,9 +348,9 @@ export default function ForecastPage() {
             <ChartTypeToggle value={chartType} onChange={setChartType} />
             <GranularityToggle value={granularity} onChange={setGranularity} />
             <button
-              onClick={() => setExpanded((e) => !e)}
-              aria-label={expanded ? "Collapse chart" : "Expand chart"}
-              title={expanded ? "Collapse" : "Expand"}
+              onClick={() => setResetSignal((s) => s + 1)}
+              aria-label="Reset zoom"
+              title="Reset zoom (or double-click the chart)"
               style={{
                 padding: "6px 12px",
                 borderRadius: 8,
@@ -352,7 +362,7 @@ export default function ForecastPage() {
                 color: "var(--text-muted, #64748B)",
               }}
             >
-              {expanded ? "Collapse" : "Expand"}
+              Reset zoom
             </button>
           </div>
         </header>
@@ -361,9 +371,9 @@ export default function ForecastPage() {
           compareBuckets={scenarioBuckets.length ? scenarioBuckets : undefined}
           compareLabel="With scenarios"
           chartType={chartType}
-          expanded={expanded}
           selectedIndex={selectedBucketIndex}
           onSelectBucket={(_, i) => setSelectedBucketIndex(i)}
+          resetSignal={resetSignal}
         />
       </section>
 

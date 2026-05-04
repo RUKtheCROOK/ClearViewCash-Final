@@ -24,6 +24,8 @@ import { displayMerchantName } from "@cvc/domain";
 import type { PaymentLink } from "@cvc/types";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
+import { useEffectiveSharedView } from "../../lib/view";
+import { useSpaces } from "../../hooks/useSpaces";
 import { CoverageStatusCard } from "../../components/CoverageStatusCard";
 import { TransactionEditSheet, type EditableTxn } from "../../components/TransactionEditSheet";
 
@@ -48,7 +50,8 @@ interface BudgetSummary {
 export default function Dashboard() {
   const router = useRouter();
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const sharedView = useApp((s) => s.sharedView);
+  const { activeSpace } = useSpaces();
+  const { sharedView, restrictToOwnerId, toggleVisible } = useEffectiveSharedView(activeSpace);
   const [reloadCount, setReloadCount] = useState(0);
   const [editing, setEditing] = useState<EditableTxn | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
@@ -74,10 +77,11 @@ export default function Dashboard() {
       const since60Iso = since60.toISOString().slice(0, 10);
       const [accounts, txns, billsRes, incomeRes, linksRes, cardsRes, goalRows, budgetRows, txns60d] =
         await Promise.all([
-          getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView }),
+          getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView, restrictToOwnerId }),
           getTransactionsForView(supabase, {
             spaceId: activeSpaceId,
             sharedView,
+            restrictToOwnerId,
             limit: 5,
             fields:
               "id, merchant_name, display_name, amount, posted_at, category, pending, is_recurring, account_id, owner_user_id, note",
@@ -95,6 +99,7 @@ export default function Dashboard() {
           getTransactionsForView(supabase, {
             spaceId: activeSpaceId,
             sharedView,
+            restrictToOwnerId,
             since: since60Iso,
             fields: "category, amount, posted_at",
             limit: 2000,
@@ -198,7 +203,7 @@ export default function Dashboard() {
         categorySuggestions,
       });
     })();
-  }, [activeSpaceId, sharedView, reloadCount]);
+  }, [activeSpaceId, sharedView, restrictToOwnerId, reloadCount]);
 
   useEffect(() => {
     if (!sharedView || !activeSpaceId) {
@@ -232,7 +237,9 @@ export default function Dashboard() {
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg, backgroundColor: colors.bg }}>
       <Card>
         <Stack gap="sm">
-          <Text variant="label">Effective available {sharedView ? "· Shared" : "· Mine"}</Text>
+          <Text variant="label">
+            Effective available{toggleVisible ? (sharedView ? " · Shared" : " · Mine") : ""}
+          </Text>
           <Money cents={data?.effective ?? 0} style={{ fontSize: 36, fontWeight: "700" }} />
           <Text variant="muted">Cash on hand minus obligations.</Text>
         </Stack>

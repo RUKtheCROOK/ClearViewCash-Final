@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@cvc/types/supabase.generated";
+import type { Tier } from "@cvc/types";
 import {
   getAccountsForView,
   getMembersWithProfilesForSpace,
@@ -11,8 +12,10 @@ import {
   getTransactionsForView,
 } from "@cvc/api-client";
 import { displayMerchantName } from "@cvc/domain";
+import { effectiveSharedView, type SpaceMember } from "../../lib/view";
 import { EditPanel } from "./EditPanel";
 import { SuggestionsBanner } from "./SuggestionsBanner";
+import { TransactionsChartSection } from "./TransactionsChartSection";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -37,7 +40,7 @@ interface Space {
   id: string;
   name: string;
   tint: string;
-  kind: "personal" | "shared";
+  members?: SpaceMember[];
 }
 
 interface AccountOpt {
@@ -57,9 +60,10 @@ export default function TransactionsPage() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
-  const [sharedView, setSharedView] = useState(false);
+  const [rawSharedView, setRawSharedView] = useState(false);
   const [txns, setTxns] = useState<Txn[]>([]);
   const [accountOpts, setAccountOpts] = useState<AccountOpt[]>([]);
   const [memberOpts, setMemberOpts] = useState<MemberOpt[]>([]);
@@ -73,14 +77,34 @@ export default function TransactionsPage() {
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [splitTxnIds, setSplitTxnIds] = useState<Set<string>>(new Set());
   const [reloadCount, setReloadCount] = useState(0);
+  const [tier, setTier] = useState<Tier>("starter");
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
       setSignedIn(!!data.session);
+      setCurrentUserId(data.session?.user?.id ?? null);
       setAuthReady(true);
     })();
   }, []);
+
+  const activeSpace = useMemo(
+    () => spaces.find((s) => s.id === activeSpaceId) ?? null,
+    [spaces, activeSpaceId],
+  );
+  const { sharedView, restrictToOwnerId, toggleVisible } = useMemo(
+    () => effectiveSharedView(activeSpace, rawSharedView, currentUserId),
+    [activeSpace, rawSharedView, currentUserId],
+  );
+
+  useEffect(() => {
+    if (!signedIn) return;
+    supabase
+      .from("users")
+      .select("tier")
+      .maybeSingle()
+      .then(({ data }) => setTier(((data?.tier as Tier) ?? "starter") as Tier));
+  }, [signedIn]);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -101,21 +125,24 @@ export default function TransactionsPage() {
     getTransactionsForView(supabase, {
       spaceId: activeSpaceId,
       sharedView,
+      restrictToOwnerId,
       limit: 200,
       accountIds: accountIds.size ? Array.from(accountIds) : undefined,
       categories: categoriesSel.size ? Array.from(categoriesSel) : undefined,
       ownerUserIds: ownerUserIds.size ? Array.from(ownerUserIds) : undefined,
     }).then((data) => setTxns(data as unknown as Txn[]));
-  }, [signedIn, activeSpaceId, sharedView, accountIds, categoriesSel, ownerUserIds, reloadCount]);
+  }, [signedIn, activeSpaceId, sharedView, restrictToOwnerId, accountIds, categoriesSel, ownerUserIds, reloadCount]);
 
   useEffect(() => {
     if (!signedIn) return;
-    getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView }).then((accs) => {
-      setAccountOpts(
-        (accs as Array<{ id: string; name: string }>).map((a) => ({ id: a.id, name: a.name })),
-      );
-    });
-  }, [signedIn, activeSpaceId, sharedView]);
+    getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView, restrictToOwnerId }).then(
+      (accs) => {
+        setAccountOpts(
+          (accs as Array<{ id: string; name: string }>).map((a) => ({ id: a.id, name: a.name })),
+        );
+      },
+    );
+  }, [signedIn, activeSpaceId, sharedView, restrictToOwnerId]);
 
   useEffect(() => {
     if (!signedIn || !sharedView || !activeSpaceId) {
@@ -219,7 +246,6 @@ export default function TransactionsPage() {
     );
   }
 
-  const activeSpace = spaces.find((s) => s.id === activeSpaceId) ?? null;
   const filterCount = accountIds.size + categoriesSel.size + ownerUserIds.size;
 
   return (
@@ -246,15 +272,15 @@ export default function TransactionsPage() {
         >
           {spaces.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name} {s.kind === "personal" ? "(personal)" : ""}
+              {s.name}
             </option>
           ))}
         </select>
-        {activeSpace && activeSpace.kind !== "personal" ? (
+        {toggleVisible ? (
           <button
             className={sharedView ? "btn btn-primary" : "btn btn-secondary"}
             style={{ padding: "8px 14px", fontSize: 14 }}
-            onClick={() => setSharedView((v) => !v)}
+            onClick={() => setRawSharedView((v) => !v)}
           >
             {sharedView ? "Shared view" : "My view"}
           </button>
@@ -375,6 +401,8 @@ export default function TransactionsPage() {
         spaceId={activeSpaceId}
         onPromoted={() => setReloadCount((c) => c + 1)}
       />
+
+      {tier !== "starter" ? <TransactionsChartSection txns={filtered} /> : null}
 
       {/* List */}
       <div className="card" style={{ padding: 0 }}>

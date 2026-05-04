@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Button, Card, HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
 import {
@@ -8,17 +8,26 @@ import {
   getAccountsForPlaidItem,
   getPaymentLinks,
   getPlaidItem,
+  updateAccountSettings,
 } from "@cvc/api-client";
+import {
+  accountBalanceTone,
+  accountDisplayName,
+  isValidHexColor,
+  readableTextOn,
+} from "@cvc/domain";
 import { supabase } from "../../../lib/supabase";
 import { openPlaidLink } from "../../../lib/plaid";
 
 interface AccountDetail {
   id: string;
   name: string;
+  display_name: string | null;
   mask: string | null;
   type: string;
   current_balance: number | null;
   plaid_item_id: string | null;
+  color: string | null;
 }
 
 interface ItemDetail {
@@ -51,11 +60,19 @@ export default function AccountDetail() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  const [nameInput, setNameInput] = useState("");
+  const [colorInput, setColorInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
     (async () => {
       const acc = (await getAccount(supabase, id)) as AccountDetail | null;
       setAccount(acc);
+      setNameInput(acc?.display_name ?? "");
+      setColorInput(acc?.color ?? "");
       if (acc?.plaid_item_id) {
         const [itm, siblings] = await Promise.all([
           getPlaidItem(supabase, acc.plaid_item_id),
@@ -67,12 +84,20 @@ export default function AccountDetail() {
       const [pls, sharesRes, allAccsRes] = await Promise.all([
         getPaymentLinks(supabase),
         supabase.from("account_shares").select("space_id").eq("account_id", id),
-        supabase.from("accounts").select("id, name"),
+        supabase.from("accounts").select("id, name, display_name"),
       ]);
       setPaymentLinks(pls as PaymentLinkRow[]);
       setShareCount((sharesRes.data ?? []).length);
       setAccountNameById(
-        Object.fromEntries(((allAccsRes.data ?? []) as Array<{ id: string; name: string }>).map((a) => [a.id, a.name])),
+        Object.fromEntries(
+          (
+            (allAccsRes.data ?? []) as Array<{
+              id: string;
+              name: string;
+              display_name: string | null;
+            }>
+          ).map((a) => [a.id, accountDisplayName(a)]),
+        ),
       );
     })();
   }, [id]);
@@ -115,6 +140,57 @@ export default function AccountDetail() {
       if (msg !== "user_exited") setReconnectError(msg);
     } finally {
       setReconnecting(false);
+    }
+  }
+
+  async function saveCustomization() {
+    if (!account) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaveMessage(null);
+    try {
+      const trimmedName = nameInput.trim();
+      const trimmedColor = colorInput.trim();
+      if (trimmedColor && !isValidHexColor(trimmedColor)) {
+        throw new Error('Color must be a hex value like "#0EA5E9".');
+      }
+      await updateAccountSettings(supabase, {
+        id: account.id,
+        display_name: trimmedName.length === 0 ? null : trimmedName,
+        color: trimmedColor.length === 0 ? null : trimmedColor,
+      });
+      const refreshed = (await getAccount(supabase, account.id)) as AccountDetail | null;
+      setAccount(refreshed);
+      setNameInput(refreshed?.display_name ?? "");
+      setColorInput(refreshed?.color ?? "");
+      setSaveMessage("Saved");
+    } catch (e) {
+      setSaveError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearCustomization() {
+    if (!account) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaveMessage(null);
+    try {
+      await updateAccountSettings(supabase, {
+        id: account.id,
+        display_name: null,
+        color: null,
+      });
+      const refreshed = (await getAccount(supabase, account.id)) as AccountDetail | null;
+      setAccount(refreshed);
+      setNameInput("");
+      setColorInput("");
+      setSaveMessage("Cleared");
+    } catch (e) {
+      setSaveError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -167,20 +243,129 @@ export default function AccountDetail() {
     (l) => l.funding_account_id === account.id || l.cards.some((c) => c.card_account_id === account.id),
   );
 
+  const tone = accountBalanceTone({
+    type: account.type,
+    current_balance: account.current_balance,
+  });
+  const balanceColor =
+    tone === "positive" ? colors.positive : tone === "negative" ? colors.negative : colors.text;
+  const hasColor = isValidHexColor(account.color ?? null);
+  const headerBg = hasColor ? (account.color as string) : "transparent";
+  const headerFg = hasColor ? readableTextOn(account.color ?? null) : colors.text;
+  const previewColorValid =
+    colorInput.trim() === "" || isValidHexColor(colorInput.trim());
+  const previewSwatch = isValidHexColor(colorInput.trim()) ? colorInput.trim() : null;
+
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
+      <Card padded={false} style={{ overflow: "hidden" }}>
+        <View
+          style={{
+            backgroundColor: headerBg,
+            paddingHorizontal: space.lg,
+            paddingVertical: space.md,
+          }}
+        >
+          <HStack justify="space-between" align="center">
+            <Text variant="h2" style={{ color: headerFg }}>
+              {accountDisplayName(account)}
+            </Text>
+            <Money
+              cents={account.current_balance}
+              style={{
+                color: hasColor ? headerFg : balanceColor,
+                fontWeight: "700",
+              }}
+            />
+          </HStack>
+        </View>
+        <View style={{ paddingHorizontal: space.lg, paddingVertical: space.md }}>
+          <Text variant="muted">
+            {account.type}
+            {account.mask ? ` · •••${account.mask}` : ""}
+            {account.display_name ? ` · originally "${account.name}"` : ""}
+          </Text>
+        </View>
+      </Card>
+
       <Card>
         <Stack gap="sm">
-          <HStack justify="space-between" align="center">
-            <Stack gap="xs">
-              <Text variant="h2">{account.name}</Text>
-              <Text variant="muted">
-                {account.type}
-                {account.mask ? ` · •••${account.mask}` : ""}
-              </Text>
-            </Stack>
-            <Money cents={account.current_balance} positiveColor />
+          <Text variant="title">Customize</Text>
+          <Text variant="muted" style={{ fontSize: 13 }}>
+            Override how this account appears. The bank's name remains "{account.name}".
+          </Text>
+
+          <Text variant="label">Display name</Text>
+          <TextInput
+            value={nameInput}
+            onChangeText={setNameInput}
+            placeholder={account.name}
+            placeholderTextColor={colors.textMuted}
+            style={{
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: radius.md,
+              padding: space.md,
+              color: colors.text,
+            }}
+          />
+
+          <Text variant="label">Card color (hex)</Text>
+          <HStack gap="sm" align="center">
+            <TextInput
+              value={colorInput}
+              onChangeText={setColorInput}
+              placeholder="#0EA5E9"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: radius.md,
+                padding: space.md,
+                color: colors.text,
+              }}
+            />
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: radius.sm,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: previewSwatch ?? "transparent",
+              }}
+            />
           </HStack>
+          {!previewColorValid ? (
+            <Text style={{ color: colors.negative, fontSize: 12 }}>
+              Enter a valid hex like #0EA5E9 or leave blank.
+            </Text>
+          ) : null}
+
+          <HStack gap="sm">
+            <Button
+              label={saving ? "Saving…" : "Save"}
+              onPress={saveCustomization}
+              disabled={saving || !previewColorValid}
+            />
+            <Button
+              label="Clear customizations"
+              variant="secondary"
+              onPress={clearCustomization}
+              disabled={saving}
+            />
+          </HStack>
+          {saveMessage ? (
+            <Text variant="muted" style={{ fontSize: 12 }}>
+              {saveMessage}
+            </Text>
+          ) : null}
+          {saveError ? (
+            <Text style={{ color: colors.negative, fontSize: 12 }}>{saveError}</Text>
+          ) : null}
         </Stack>
       </Card>
 
@@ -286,7 +471,7 @@ export default function AccountDetail() {
             Delete account
           </Text>
           <Text variant="muted">
-            Removes {account.name} and its transactions from ClearViewCash.
+            Removes {accountDisplayName(account)} and its transactions from ClearViewCash.
             {account.plaid_item_id && siblingCount <= 1
               ? " This is the last account on this connected service, so the connection itself will also be removed."
               : ""}

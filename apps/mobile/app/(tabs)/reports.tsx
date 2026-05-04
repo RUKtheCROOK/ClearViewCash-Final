@@ -24,6 +24,8 @@ import {
 import { getAccountBalanceHistory, getTransactionsForView } from "@cvc/api-client";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
+import { useEffectiveSharedView } from "../../lib/view";
+import { useSpaces } from "../../hooks/useSpaces";
 import { useTier } from "../../hooks/useTier";
 
 type ReportKind = "category" | "cash_flow" | "net_worth";
@@ -36,7 +38,8 @@ const KINDS: { key: ReportKind; label: string }[] = [
 
 export default function Reports() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const sharedView = useApp((s) => s.sharedView);
+  const { activeSpace } = useSpaces();
+  const { sharedView, restrictToOwnerId } = useEffectiveSharedView(activeSpace);
   const { canReports, tier } = useTier();
 
   const [kind, setKind] = useState<ReportKind>("category");
@@ -64,6 +67,7 @@ export default function Reports() {
           const { accounts, txns } = await getAccountBalanceHistory(supabase, {
             spaceId: activeSpaceId,
             sharedView,
+            restrictToOwnerId,
             since: range.from,
           });
           if (cancelled) return;
@@ -81,6 +85,7 @@ export default function Reports() {
           const data = (await getTransactionsForView(supabase, {
             spaceId: activeSpaceId,
             sharedView,
+            restrictToOwnerId,
             since: range.from,
             fields: "category, amount, posted_at",
             limit: 10000,
@@ -96,7 +101,7 @@ export default function Reports() {
     return () => {
       cancelled = true;
     };
-  }, [canReports, kind, granularity, range.from, range.to, activeSpaceId, sharedView]);
+  }, [canReports, kind, granularity, range.from, range.to, activeSpaceId, sharedView, restrictToOwnerId]);
 
   const exportRows = useMemo(() => {
     if (kind === "category") {

@@ -11,14 +11,20 @@ import {
   getTransactionsForView,
 } from "@cvc/api-client";
 import {
+  accountBalanceTone,
+  accountDisplayName,
   allocatePaymentLinks,
   computeObligations,
   displayMerchantName,
   effectiveAvailableBalances,
+  groupAccountsByType,
+  isValidHexColor,
+  readableTextOn,
   type ObligationsBreakdown,
   type PaymentLinkAllocation,
 } from "@cvc/domain";
 import { openPlaidLink } from "../../lib/plaid";
+import { effectiveSharedView, type SpaceMember } from "../../lib/view";
 import { EditPanel, type EditableTxn } from "../transactions/EditPanel";
 
 const supabase = createClient<Database>(
@@ -29,11 +35,19 @@ const supabase = createClient<Database>(
 interface AccountRow {
   id: string;
   name: string;
+  display_name?: string | null;
   mask: string | null;
   type: string;
   current_balance: number | null;
   plaid_item_id: string | null;
   last_synced_at?: string | null;
+  color?: string | null;
+}
+
+function balanceColor(tone: ReturnType<typeof accountBalanceTone>): string {
+  if (tone === "positive") return "var(--positive)";
+  if (tone === "negative") return "var(--negative)";
+  return "var(--text)";
 }
 
 interface PlaidItemStatus {
@@ -46,7 +60,7 @@ interface Space {
   id: string;
   name: string;
   tint: string;
-  kind: "personal" | "shared";
+  members?: SpaceMember[];
 }
 
 interface LinkRow {
@@ -85,9 +99,10 @@ export default function AccountsPage() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
-  const [sharedView, setSharedView] = useState(false);
+  const [rawSharedView, setRawSharedView] = useState(false);
   const [rows, setRows] = useState<AccountRow[]>([]);
   const [myAccounts, setMyAccounts] = useState<AccountRow[]>([]);
   const [links, setLinks] = useState<LinkRow[]>([]);
@@ -113,9 +128,19 @@ export default function AccountsPage() {
     (async () => {
       const { data } = await supabase.auth.getSession();
       setSignedIn(!!data.session);
+      setCurrentUserId(data.session?.user?.id ?? null);
       setAuthReady(true);
     })();
   }, []);
+
+  const activeSpace = useMemo(
+    () => spaces.find((s) => s.id === activeSpaceId) ?? null,
+    [spaces, activeSpaceId],
+  );
+  const { sharedView, restrictToOwnerId, toggleVisible } = useMemo(
+    () => effectiveSharedView(activeSpace, rawSharedView, currentUserId),
+    [activeSpace, rawSharedView, currentUserId],
+  );
 
   useEffect(() => {
     if (!signedIn) return;
@@ -137,10 +162,10 @@ export default function AccountsPage() {
     (async () => {
       const todayIso = new Date().toISOString().slice(0, 10);
       const [accs, allAccsRes, linksRes, cardsRes, items, billsRes, txnsRes] = await Promise.all([
-        getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView }),
+        getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView, restrictToOwnerId }),
         supabase
           .from("accounts")
-          .select("id, name, mask, type, current_balance, plaid_item_id"),
+          .select("id, name, display_name, mask, type, current_balance, plaid_item_id, color"),
         supabase.from("payment_links").select("id, funding_account_id, name, cross_space"),
         supabase.from("payment_link_cards").select("payment_link_id, card_account_id, split_pct"),
         getPlaidItemsStatus(supabase),
@@ -154,6 +179,7 @@ export default function AccountsPage() {
         getTransactionsForView(supabase, {
           spaceId: activeSpaceId,
           sharedView,
+          restrictToOwnerId,
           limit: 10,
           fields:
             "id, merchant_name, display_name, amount, posted_at, category, pending, is_recurring, account_id, owner_user_id, note",
@@ -189,7 +215,7 @@ export default function AccountsPage() {
       setEffective(Object.fromEntries(eff));
       setAllocations(allocatePaymentLinks(linkObjs as never, allBalances));
     })();
-  }, [signedIn, activeSpaceId, sharedView, reloadCount]);
+  }, [signedIn, activeSpaceId, sharedView, restrictToOwnerId, reloadCount]);
 
   useEffect(() => {
     if (!signedIn || !sharedView || !activeSpaceId) {
@@ -222,8 +248,8 @@ export default function AccountsPage() {
     return Array.from(set).sort();
   }, [recent]);
 
-  const accountNameById = new Map(rows.map((r) => [r.id, r.name]));
-  const myAccountNameById = new Map(myAccounts.map((r) => [r.id, r.name]));
+  const accountNameById = new Map(rows.map((r) => [r.id, accountDisplayName(r)]));
+  const myAccountNameById = new Map(myAccounts.map((r) => [r.id, accountDisplayName(r)]));
   const balanceById = new Map<string, number>(
     [...myAccounts, ...rows].map((r) => [r.id, r.current_balance ?? 0]),
   );
@@ -380,8 +406,6 @@ export default function AccountsPage() {
     );
   }
 
-  const activeSpace = spaces.find((s) => s.id === activeSpaceId) ?? null;
-
   return (
     <main className="container" style={{ padding: "32px 0" }}>
       <div
@@ -422,15 +446,15 @@ export default function AccountsPage() {
         >
           {spaces.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name} {s.kind === "personal" ? "(personal)" : ""}
+              {s.name}
             </option>
           ))}
         </select>
-        {activeSpace && activeSpace.kind !== "personal" ? (
+        {toggleVisible ? (
           <button
             className={sharedView ? "btn btn-primary" : "btn btn-secondary"}
             style={{ padding: "8px 14px", fontSize: 14 }}
-            onClick={() => setSharedView((v) => !v)}
+            onClick={() => setRawSharedView((v) => !v)}
           >
             {sharedView ? "Shared view" : "My view"}
           </button>
@@ -527,141 +551,204 @@ export default function AccountsPage() {
           </p>
         </div>
       ) : (
-        <div style={{ display: "grid", gap: 12 }}>
-          {rows.map((a) => {
-            const status = a.plaid_item_id ? itemStatus[a.plaid_item_id]?.status : undefined;
-            const needsReconnect = status === "error";
-            const ago = relativeAgo(a.last_synced_at ?? null);
-            const badges = badgesFor(a);
-            const fullyCovered = isDebtFullyCovered(a);
-            const showEffective =
-              a.type === "depository" &&
-              effective[a.id] !== undefined &&
-              effective[a.id] !== a.current_balance;
-            return (
-              <div key={a.id} className="card">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    gap: 12,
-                  }}
-                >
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <strong style={{ fontSize: 17 }}>{a.name}</strong>
-                      {status ? (
-                        <span
-                          style={{
-                            padding: "2px 10px",
-                            borderRadius: 999,
-                            background: needsReconnect ? "#F59E0B" : "var(--positive)",
-                            color: "white",
-                            fontSize: 11,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {needsReconnect ? "Needs reconnect" : "Synced"}
-                        </span>
-                      ) : null}
-                      {fullyCovered ? (
-                        <span
-                          style={{
-                            padding: "2px 10px",
-                            borderRadius: 999,
-                            background: "var(--positive)",
-                            color: "white",
-                            fontSize: 11,
-                            fontWeight: 600,
-                          }}
-                        >
-                          Fully covered
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                      {a.type}
-                      {a.mask ? ` · •••${a.mask}` : ""}
-                      {ago ? ` · synced ${ago}` : ""}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 17,
-                      color:
-                        (a.current_balance ?? 0) > 0 ? "var(--positive)" : "var(--text)",
-                    }}
-                  >
-                    {fmtMoney(a.current_balance)}
-                  </div>
-                </div>
-
-                {showEffective ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginTop: 10,
-                      paddingTop: 10,
-                      borderTop: "1px solid var(--border)",
-                    }}
-                  >
-                    <span className="muted" style={{ fontSize: 13 }}>
-                      Effective Available
-                    </span>
-                    <span style={{ fontWeight: 600, color: "var(--positive)" }}>
-                      {fmtMoney(effective[a.id]!)}
-                    </span>
-                  </div>
-                ) : null}
-
-                {badges.length > 0 ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 6,
-                      flexWrap: "wrap",
-                      marginTop: 10,
-                    }}
-                  >
-                    {badges.map((b) => (
-                      <span
-                        key={b}
-                        style={{
-                          padding: "4px 10px",
-                          borderRadius: 999,
-                          background: "var(--bg)",
-                          border: "1px solid var(--border)",
-                          color: "var(--muted)",
-                          fontSize: 12,
-                        }}
-                      >
-                        {b}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-
-                {needsReconnect && a.plaid_item_id ? (
-                  <div style={{ marginTop: 12 }}>
-                    <button
-                      className="btn btn-secondary"
-                      style={{ padding: "8px 14px", fontSize: 13 }}
-                      onClick={() => reconnect(a.plaid_item_id!)}
-                      disabled={reconnectingItemId !== null || adding}
+        <div style={{ display: "grid", gap: 24 }}>
+          {groupAccountsByType(rows).map(({ group, accounts }) => (
+            <section key={group} style={{ display: "grid", gap: 10 }}>
+              <h3
+                className="muted"
+                style={{
+                  margin: 0,
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.6,
+                  fontWeight: 600,
+                }}
+              >
+                {group}
+              </h3>
+              <div style={{ display: "grid", gap: 12 }}>
+                {accounts.map((a) => {
+                  const status = a.plaid_item_id
+                    ? itemStatus[a.plaid_item_id]?.status
+                    : undefined;
+                  const needsReconnect = status === "error";
+                  const ago = relativeAgo(a.last_synced_at ?? null);
+                  const badges = badgesFor(a);
+                  const fullyCovered = isDebtFullyCovered(a);
+                  const showEffective =
+                    a.type === "depository" &&
+                    effective[a.id] !== undefined &&
+                    effective[a.id] !== a.current_balance;
+                  const tone = accountBalanceTone(a);
+                  const hasColor = isValidHexColor(a.color ?? null);
+                  const headerBg = hasColor ? (a.color as string) : "transparent";
+                  const headerFg = hasColor ? readableTextOn(a.color ?? null) : "var(--text)";
+                  return (
+                    <Link
+                      key={a.id}
+                      href={`/accounts/${a.id}`}
+                      style={{ textDecoration: "none", color: "inherit" }}
                     >
-                      {reconnectingItemId === a.plaid_item_id
-                        ? "Reconnecting…"
-                        : "Reconnect"}
-                    </button>
-                  </div>
-                ) : null}
+                      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+                        <div
+                          style={{
+                            background: headerBg,
+                            color: headerFg,
+                            padding: "16px 20px",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 12,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <strong style={{ fontSize: 17 }}>{accountDisplayName(a)}</strong>
+                            {status ? (
+                              <span
+                                style={{
+                                  padding: "2px 10px",
+                                  borderRadius: 999,
+                                  background: needsReconnect ? "#F59E0B" : "var(--positive)",
+                                  color: "white",
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {needsReconnect ? "Needs reconnect" : "Synced"}
+                              </span>
+                            ) : null}
+                            {fullyCovered ? (
+                              <span
+                                style={{
+                                  padding: "2px 10px",
+                                  borderRadius: 999,
+                                  background: "var(--positive)",
+                                  color: "white",
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Fully covered
+                              </span>
+                            ) : null}
+                          </div>
+                          <div
+                            style={{
+                              fontWeight: 700,
+                              fontSize: 18,
+                              color: hasColor ? headerFg : balanceColor(tone),
+                            }}
+                          >
+                            {fmtMoney(a.current_balance)}
+                          </div>
+                        </div>
+                        <div style={{ padding: "12px 20px 16px" }}>
+                          <div
+                            className="muted"
+                            style={{ fontSize: 13, marginBottom: showEffective || badges.length || (needsReconnect && a.plaid_item_id) ? 10 : 0 }}
+                          >
+                            {a.type}
+                            {a.mask ? ` · •••${a.mask}` : ""}
+                            {ago ? ` · synced ${ago}` : ""}
+                          </div>
+                          {showEffective ? (
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                paddingTop: 10,
+                                borderTop: "1px solid var(--border)",
+                              }}
+                            >
+                              <span className="muted" style={{ fontSize: 13 }}>
+                                Effective Available
+                              </span>
+                              <span
+                                style={{
+                                  fontWeight: 600,
+                                  color: balanceColor(
+                                    accountBalanceTone({
+                                      type: a.type,
+                                      current_balance: effective[a.id] ?? null,
+                                    }),
+                                  ),
+                                }}
+                              >
+                                {fmtMoney(effective[a.id]!)}
+                              </span>
+                            </div>
+                          ) : null}
+                          {badges.length > 0 ? (
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 6,
+                                flexWrap: "wrap",
+                                marginTop: 10,
+                              }}
+                            >
+                              {badges.map((b) => (
+                                <span
+                                  key={b}
+                                  style={{
+                                    padding: "4px 10px",
+                                    borderRadius: 999,
+                                    background: "var(--bg)",
+                                    border: "1px solid var(--border)",
+                                    color: "var(--muted)",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {b}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          {needsReconnect && a.plaid_item_id ? (
+                            <div style={{ marginTop: 12 }}>
+                              <button
+                                className="btn btn-secondary"
+                                style={{ padding: "8px 14px", fontSize: 13 }}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  reconnect(a.plaid_item_id!);
+                                }}
+                                disabled={reconnectingItemId !== null || adding}
+                              >
+                                {reconnectingItemId === a.plaid_item_id
+                                  ? "Reconnecting…"
+                                  : "Reconnect"}
+                              </button>
+                            </div>
+                          ) : null}
+                          {a.type === "credit" || a.type === "loan" ? (
+                            <div style={{ marginTop: 12 }}>
+                              <Link
+                                href={`/goals?prefill=${a.id}`}
+                                className="btn btn-secondary"
+                                style={{ padding: "8px 14px", fontSize: 13 }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                Track as goal
+                              </Link>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
-            );
-          })}
+            </section>
+          ))}
         </div>
       )}
 
@@ -707,7 +794,12 @@ export default function AccountsPage() {
                 <div
                   style={{
                     fontWeight: 600,
-                    color: t.amount > 0 ? "var(--positive)" : "var(--text)",
+                    color:
+                      t.amount > 0
+                        ? "var(--positive)"
+                        : t.amount < 0
+                          ? "var(--negative)"
+                          : "var(--text)",
                   }}
                 >
                   {fmtMoney(t.amount)}

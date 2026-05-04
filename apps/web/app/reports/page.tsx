@@ -27,6 +27,7 @@ import {
   getMySpaces,
   getTransactionsForView,
 } from "@cvc/api-client";
+import { effectiveSharedView, type SpaceMember } from "../../lib/view";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -36,7 +37,7 @@ const supabase = createClient<Database>(
 interface SpaceRow {
   id: string;
   name: string;
-  kind: "personal" | "shared";
+  members?: SpaceMember[];
 }
 
 type ReportKind = "category" | "cash_flow" | "net_worth";
@@ -51,10 +52,11 @@ export default function ReportsPage() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [tier, setTier] = useState<Tier>("starter");
   const [spaces, setSpaces] = useState<SpaceRow[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
-  const [sharedView, setSharedView] = useState(false);
+  const [rawSharedView, setRawSharedView] = useState(false);
 
   const [kind, setKind] = useState<ReportKind>("category");
   const [presetKey, setPresetKey] = useState<RangePreset["key"] | "custom">("this_month");
@@ -70,9 +72,19 @@ export default function ReportsPage() {
     (async () => {
       const { data } = await supabase.auth.getSession();
       setSignedIn(!!data.session);
+      setCurrentUserId(data.session?.user?.id ?? null);
       setAuthReady(true);
     })();
   }, []);
+
+  const activeSpace = useMemo(
+    () => spaces.find((s) => s.id === activeSpaceId) ?? null,
+    [spaces, activeSpaceId],
+  );
+  const { sharedView, restrictToOwnerId, toggleVisible } = useMemo(
+    () => effectiveSharedView(activeSpace, rawSharedView, currentUserId),
+    [activeSpace, rawSharedView, currentUserId],
+  );
 
   useEffect(() => {
     if (!signedIn) return;
@@ -110,6 +122,7 @@ export default function ReportsPage() {
           const { accounts, txns } = await getAccountBalanceHistory(supabase, {
             spaceId: activeSpaceId,
             sharedView,
+            restrictToOwnerId,
             since: range.from,
           });
           if (cancelled) return;
@@ -127,6 +140,7 @@ export default function ReportsPage() {
           const data = (await getTransactionsForView(supabase, {
             spaceId: activeSpaceId,
             sharedView,
+            restrictToOwnerId,
             since: range.from,
             fields: "category, amount, posted_at",
             limit: 10000,
@@ -142,7 +156,7 @@ export default function ReportsPage() {
     return () => {
       cancelled = true;
     };
-  }, [signedIn, canReports, kind, granularity, range.from, range.to, activeSpaceId, sharedView]);
+  }, [signedIn, canReports, kind, granularity, range.from, range.to, activeSpaceId, sharedView, restrictToOwnerId]);
 
   const exportRows = useMemo(() => {
     if (kind === "category") {
@@ -217,7 +231,6 @@ export default function ReportsPage() {
     );
   }
 
-  const activeSpace = spaces.find((s) => s.id === activeSpaceId) ?? null;
   const totals = (() => {
     if (kind === "category") {
       const t = category.reduce((s, r) => s + r.total, 0);
@@ -264,15 +277,15 @@ export default function ReportsPage() {
         >
           {spaces.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name} {s.kind === "personal" ? "(personal)" : ""}
+              {s.name}
             </option>
           ))}
         </select>
-        {activeSpace && activeSpace.kind !== "personal" ? (
+        {toggleVisible ? (
           <button
             className={sharedView ? "btn btn-primary" : "btn btn-secondary"}
             style={{ padding: "8px 14px", fontSize: 14 }}
-            onClick={() => setSharedView((v) => !v)}
+            onClick={() => setRawSharedView((v) => !v)}
           >
             {sharedView ? "Shared view" : "My view"}
           </button>

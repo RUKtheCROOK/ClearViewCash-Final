@@ -1,14 +1,15 @@
 import { Pressable, View } from "react-native";
 import { router } from "expo-router";
 import { Text, HStack, colors, radius, space } from "@cvc/ui";
-import { useSpaces } from "../hooks/useSpaces";
+import { acceptedMemberCount, useSpaces } from "../hooks/useSpaces";
 import { useUnreadNotifications } from "../hooks/useUnreadNotifications";
 import { useApp } from "../lib/store";
 
 /**
  * Sticky header — shown on every tab. Renders space switcher pill (tinted by
  * active space), the My View ⇄ Shared View toggle, the notification bell,
- * and the settings gear.
+ * and the settings gear. The toggle is only meaningful in spaces with at
+ * least two accepted members, so it's hidden otherwise.
  */
 export function SpaceHeader() {
   const { activeSpace, spaces } = useSpaces();
@@ -16,6 +17,7 @@ export function SpaceHeader() {
   const toggleView = useApp((s) => s.toggleView);
   const setActive = useApp((s) => s.setActiveSpace);
   const unread = useUnreadNotifications();
+  const showToggle = acceptedMemberCount(activeSpace) >= 2;
 
   function cycleSpace() {
     if (spaces.length < 2 || !activeSpace) return;
@@ -47,11 +49,13 @@ export function SpaceHeader() {
           </View>
         </Pressable>
         <HStack gap="md" align="center">
-          <Pressable onPress={toggleView} hitSlop={10}>
-            <Text style={{ color: "#fff", fontWeight: "500" }}>
-              {sharedView ? "Shared View" : "My View"} ⇄
-            </Text>
-          </Pressable>
+          {showToggle ? (
+            <Pressable onPress={toggleView} hitSlop={10}>
+              <Text style={{ color: "#fff", fontWeight: "500" }}>
+                {sharedView ? "Shared View" : "My View"} ⇄
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable onPress={() => router.push("/settings/notifications")} hitSlop={10}>
             <View>
               <Text style={{ color: "#fff", fontSize: 18 }}>🔔</Text>

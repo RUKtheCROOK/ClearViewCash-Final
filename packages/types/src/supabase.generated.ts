@@ -227,6 +227,8 @@ export type Database = {
           amount: number
           autopay: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
+          // hand-edited: see migration 20260507_bills_income_category
+          category: string | null
           created_at: string
           due_day: number | null
           id: string
@@ -243,6 +245,7 @@ export type Database = {
           amount: number
           autopay?: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
+          category?: string | null
           created_at?: string
           due_day?: number | null
           id?: string
@@ -259,6 +262,7 @@ export type Database = {
           amount?: number
           autopay?: boolean
           cadence?: Database["public"]["Enums"]["cadence_t"]
+          category?: string | null
           created_at?: string
           due_day?: number | null
           id?: string
@@ -338,6 +342,7 @@ export type Database = {
       }
       goals: {
         Row: {
+          apr_bps: number | null
           created_at: string
           id: string
           kind: Database["public"]["Enums"]["goal_kind_t"]
@@ -348,9 +353,11 @@ export type Database = {
           starting_amount: number | null
           target_amount: number
           target_date: string | null
+          term_months: number | null
           updated_at: string
         }
         Insert: {
+          apr_bps?: number | null
           created_at?: string
           id?: string
           kind: Database["public"]["Enums"]["goal_kind_t"]
@@ -361,9 +368,11 @@ export type Database = {
           starting_amount?: number | null
           target_amount: number
           target_date?: string | null
+          term_months?: number | null
           updated_at?: string
         }
         Update: {
+          apr_bps?: number | null
           created_at?: string
           id?: string
           kind?: Database["public"]["Enums"]["goal_kind_t"]
@@ -374,6 +383,7 @@ export type Database = {
           starting_amount?: number | null
           target_amount?: number
           target_date?: string | null
+          term_months?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -393,12 +403,47 @@ export type Database = {
           },
         ]
       }
+      goal_shares: {
+        Row: {
+          created_at: string
+          goal_id: string
+          space_id: string
+        }
+        Insert: {
+          created_at?: string
+          goal_id: string
+          space_id: string
+        }
+        Update: {
+          created_at?: string
+          goal_id?: string
+          space_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "goal_shares_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goal_shares_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       income_events: {
         Row: {
           actual_amount: number | null
           amount: number
           autopay: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
+          // hand-edited: see migration 20260507_bills_income_category
+          category: string | null
           created_at: string
           due_day: number | null
           id: string
@@ -417,6 +462,7 @@ export type Database = {
           amount: number
           autopay?: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
+          category?: string | null
           created_at?: string
           due_day?: number | null
           id?: string
@@ -435,6 +481,7 @@ export type Database = {
           amount?: number
           autopay?: boolean
           cadence?: Database["public"]["Enums"]["cadence_t"]
+          category?: string | null
           created_at?: string
           due_day?: number | null
           id?: string
@@ -712,6 +759,9 @@ export type Database = {
       space_members: {
         Row: {
           accepted_at: string | null
+          can_delete: boolean
+          can_invite: boolean
+          can_rename: boolean
           created_at: string
           id: string
           invited_email: string | null
@@ -721,6 +771,9 @@ export type Database = {
         }
         Insert: {
           accepted_at?: string | null
+          can_delete?: boolean
+          can_invite?: boolean
+          can_rename?: boolean
           created_at?: string
           id?: string
           invited_email?: string | null
@@ -730,6 +783,9 @@ export type Database = {
         }
         Update: {
           accepted_at?: string | null
+          can_delete?: boolean
+          can_invite?: boolean
+          can_rename?: boolean
           created_at?: string
           id?: string
           invited_email?: string | null
@@ -758,7 +814,6 @@ export type Database = {
         Row: {
           created_at: string
           id: string
-          kind: Database["public"]["Enums"]["space_kind_t"]
           name: string
           owner_user_id: string
           tint: string
@@ -767,7 +822,6 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
-          kind?: Database["public"]["Enums"]["space_kind_t"]
           name: string
           owner_user_id: string
           tint?: string
@@ -776,7 +830,6 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
-          kind?: Database["public"]["Enums"]["space_kind_t"]
           name?: string
           owner_user_id?: string
           tint?: string
@@ -1050,7 +1103,6 @@ export type Database = {
         | "custom"
         | "once"
       goal_kind_t: "save" | "payoff"
-      space_kind_t: "personal" | "shared"
       space_role_t: "owner" | "member"
       tier_t: "starter" | "pro" | "household"
     }
@@ -1639,7 +1691,6 @@ export const Constants = {
       budget_period_t: ["monthly", "weekly"],
       cadence_t: ["monthly", "weekly", "biweekly", "yearly", "custom", "once"],
       goal_kind_t: ["save", "payoff"],
-      space_kind_t: ["personal", "shared"],
       space_role_t: ["owner", "member"],
       tier_t: ["starter", "pro", "household"],
     },

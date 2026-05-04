@@ -3,10 +3,16 @@ import { Pressable, ScrollView, View } from "react-native";
 import { router } from "expo-router";
 import { Button, Card, HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
 import {
+  accountBalanceTone,
+  accountDisplayName,
   allocatePaymentLinks,
   computeObligations,
   displayMerchantName,
   effectiveAvailableBalances,
+  groupAccountsByType,
+  isValidHexColor,
+  readableTextOn,
+  type BalanceTone,
   type ObligationsBreakdown,
   type PaymentLinkAllocation,
 } from "@cvc/domain";
@@ -17,12 +23,15 @@ import {
 } from "@cvc/api-client";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
+import { useEffectiveSharedView } from "../../lib/view";
+import { useSpaces } from "../../hooks/useSpaces";
 import { openPlaidLink } from "../../lib/plaid";
 import { TransactionEditSheet, type EditableTxn } from "../../components/TransactionEditSheet";
 
 interface AccountRow {
   id: string;
   name: string;
+  display_name?: string | null;
   mask: string | null;
   type: string;
   current_balance: number | null;
@@ -30,6 +39,13 @@ interface AccountRow {
   // Optional until supabase.generated.ts is regenerated after the
   // 20260504000003_account_last_synced_at migration. Present at runtime.
   last_synced_at?: string | null;
+  color?: string | null;
+}
+
+function balanceTextColor(tone: BalanceTone): string {
+  if (tone === "positive") return colors.positive;
+  if (tone === "negative") return colors.negative;
+  return colors.text;
 }
 
 function relativeAgo(iso: string | null): string | null {
@@ -65,7 +81,8 @@ interface CardRow {
 
 export default function Accounts() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const sharedView = useApp((s) => s.sharedView);
+  const { activeSpace } = useSpaces();
+  const { sharedView, restrictToOwnerId, toggleVisible } = useEffectiveSharedView(activeSpace);
   const [rows, setRows] = useState<AccountRow[]>([]);
   const [myAccounts, setMyAccounts] = useState<AccountRow[]>([]);
   const [effective, setEffective] = useState<Record<string, number>>({});
@@ -91,8 +108,10 @@ export default function Accounts() {
     (async () => {
       const todayIso = new Date().toISOString().slice(0, 10);
       const [accs, allAccsRes, linksRes, cardsRes, items, billsRes, txnsRes] = await Promise.all([
-        getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView }),
-        supabase.from("accounts").select("id, name, mask, type, current_balance, plaid_item_id"),
+        getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView, restrictToOwnerId }),
+        supabase
+          .from("accounts")
+          .select("id, name, display_name, mask, type, current_balance, plaid_item_id, color"),
         supabase.from("payment_links").select("id, funding_account_id, name, cross_space"),
         supabase.from("payment_link_cards").select("payment_link_id, card_account_id, split_pct"),
         getPlaidItemsStatus(supabase),
@@ -106,6 +125,7 @@ export default function Accounts() {
         getTransactionsForView(supabase, {
           spaceId: activeSpaceId,
           sharedView,
+          restrictToOwnerId,
           limit: 10,
           fields:
             "id, merchant_name, display_name, amount, posted_at, category, pending, is_recurring, account_id, owner_user_id, note",
@@ -150,7 +170,7 @@ export default function Accounts() {
       setEffective(Object.fromEntries(eff));
       setAllocations(allocatePaymentLinks(linkObjs as never, allBalances));
     })();
-  }, [activeSpaceId, sharedView, reloadCount]);
+  }, [activeSpaceId, sharedView, restrictToOwnerId, reloadCount]);
 
   useEffect(() => {
     if (!sharedView || !activeSpaceId) {
@@ -220,8 +240,8 @@ export default function Accounts() {
     }
   }
 
-  const accountNameById = new Map(rows.map((r) => [r.id, r.name]));
-  const myAccountNameById = new Map(myAccounts.map((r) => [r.id, r.name]));
+  const accountNameById = new Map(rows.map((r) => [r.id, accountDisplayName(r)]));
+  const myAccountNameById = new Map(myAccounts.map((r) => [r.id, accountDisplayName(r)]));
   const balanceById = new Map<string, number>(
     [...myAccounts, ...rows].map((r) => [r.id, r.current_balance ?? 0]),
   );
@@ -271,7 +291,7 @@ export default function Accounts() {
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
       <HStack justify="space-between" align="center">
-        <Text variant="h2">Accounts {sharedView ? "· Shared" : "· Mine"}</Text>
+        <Text variant="h2">Accounts{toggleVisible ? (sharedView ? " · Shared" : " · Mine") : ""}</Text>
         <HStack gap="sm">
           <Button
             label="Links"
@@ -308,107 +328,202 @@ export default function Accounts() {
           </Stack>
         </Card>
       </HStack>
-      {rows.map((a) => {
-        const badges = badgesFor(a);
-        const status = a.plaid_item_id ? itemStatus[a.plaid_item_id]?.status : undefined;
-        const needsReconnect = status === "error";
-        const fullyCovered = isDebtFullyCovered(a);
-        return (
-          <Pressable key={a.id} onPress={() => router.push({ pathname: "/settings/account/[id]", params: { id: a.id } })}>
-            <Card>
-              <Stack gap="sm">
-                <HStack justify="space-between" align="center">
-                  <Stack gap="xs">
-                    <HStack gap="sm" align="center">
-                      <Text variant="title">{a.name}</Text>
-                      {status ? (
-                        <View
-                          style={{
-                            paddingHorizontal: space.sm,
-                            paddingVertical: 2,
-                            borderRadius: radius.pill,
-                            backgroundColor: needsReconnect ? colors.warning : colors.positive,
-                          }}
-                        >
-                          <Text style={{ color: colors.surface, fontSize: 11, fontWeight: "600" }}>
-                            {needsReconnect ? "Needs reconnect" : "Synced"}
+      {groupAccountsByType(rows).map(({ group, accounts }) => (
+        <Stack key={group} gap="sm">
+          <Text
+            variant="muted"
+            style={{
+              fontSize: 11,
+              letterSpacing: 0.6,
+              textTransform: "uppercase",
+              fontWeight: "600",
+            }}
+          >
+            {group}
+          </Text>
+          {accounts.map((a) => {
+            const badges = badgesFor(a);
+            const status = a.plaid_item_id ? itemStatus[a.plaid_item_id]?.status : undefined;
+            const needsReconnect = status === "error";
+            const fullyCovered = isDebtFullyCovered(a);
+            const tone = accountBalanceTone(a);
+            const hasColor = isValidHexColor(a.color ?? null);
+            const headerBg = hasColor ? (a.color as string) : "transparent";
+            const headerFg = hasColor ? readableTextOn(a.color ?? null) : colors.text;
+            return (
+              <Pressable
+                key={a.id}
+                onPress={() =>
+                  router.push({
+                    pathname: "/settings/account/[id]",
+                    params: { id: a.id },
+                  })
+                }
+              >
+                <Card padded={false} style={{ overflow: "hidden" }}>
+                  <View
+                    style={{
+                      backgroundColor: headerBg,
+                      paddingHorizontal: space.lg,
+                      paddingVertical: space.md,
+                    }}
+                  >
+                    <HStack justify="space-between" align="center">
+                      <View style={{ flex: 1, paddingRight: space.sm }}>
+                        <HStack gap="sm" align="center" style={{ flexWrap: "wrap" }}>
+                          <Text
+                            variant="title"
+                            style={{ color: headerFg }}
+                          >
+                            {accountDisplayName(a)}
                           </Text>
-                        </View>
-                      ) : null}
-                      {fullyCovered ? (
-                        <View
-                          style={{
-                            paddingHorizontal: space.sm,
-                            paddingVertical: 2,
-                            borderRadius: radius.pill,
-                            backgroundColor: colors.positive,
-                          }}
-                        >
-                          <Text style={{ color: colors.surface, fontSize: 11, fontWeight: "600" }}>
-                            Fully covered
-                          </Text>
-                        </View>
-                      ) : null}
-                    </HStack>
-                    <Text variant="muted">
-                      {a.type} {a.mask ? `· •••${a.mask}` : ""}
-                      {(() => {
-                        const ago = relativeAgo(a.last_synced_at ?? null);
-                        return ago ? ` · synced ${ago}` : "";
-                      })()}
-                    </Text>
-                  </Stack>
-                  <Money cents={a.current_balance} positiveColor />
-                </HStack>
-                {a.type === "depository" &&
-                effective[a.id] !== undefined &&
-                effective[a.id] !== a.current_balance ? (
-                  <HStack justify="space-between">
-                    <Text variant="muted">Effective Available</Text>
-                    <Money cents={effective[a.id]!} positiveColor />
-                  </HStack>
-                ) : null}
-                {badges.length > 0 ? (
-                  <HStack gap="sm" style={{ flexWrap: "wrap" }}>
-                    {badges.map((b) => (
-                      <View
-                        key={b}
-                        style={{
-                          paddingHorizontal: space.sm,
-                          paddingVertical: 4,
-                          borderRadius: radius.pill,
-                          backgroundColor: colors.surface,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                        }}
-                      >
-                        <Text variant="muted" style={{ fontSize: 12 }}>
-                          {b}
-                        </Text>
+                          {status ? (
+                            <View
+                              style={{
+                                paddingHorizontal: space.sm,
+                                paddingVertical: 2,
+                                borderRadius: radius.pill,
+                                backgroundColor: needsReconnect
+                                  ? colors.warning
+                                  : colors.positive,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colors.surface,
+                                  fontSize: 11,
+                                  fontWeight: "600",
+                                }}
+                              >
+                                {needsReconnect ? "Needs reconnect" : "Synced"}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {fullyCovered ? (
+                            <View
+                              style={{
+                                paddingHorizontal: space.sm,
+                                paddingVertical: 2,
+                                borderRadius: radius.pill,
+                                backgroundColor: colors.positive,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colors.surface,
+                                  fontSize: 11,
+                                  fontWeight: "600",
+                                }}
+                              >
+                                Fully covered
+                              </Text>
+                            </View>
+                          ) : null}
+                        </HStack>
                       </View>
-                    ))}
-                  </HStack>
-                ) : null}
-                {needsReconnect && a.plaid_item_id ? (
-                  <Stack gap="xs">
-                    <Button
-                      label={
-                        reconnectingItemId === a.plaid_item_id ? "Reconnecting…" : "Reconnect"
-                      }
-                      variant="secondary"
-                      disabled={reconnectingItemId !== null}
-                      onPress={() => reconnect(a.plaid_item_id!)}
-                    />
-                    {reconnectError && reconnectingItemId === null ? (
-                      <Text style={{ color: colors.negative, fontSize: 12 }}>{reconnectError}</Text>
-                    ) : null}
-                  </Stack>
-                ) : null}
-              </Stack>
-            </Card>
-          </Pressable>
-        );
-      })}
+                      <Money
+                        cents={a.current_balance}
+                        style={{
+                          color: hasColor ? headerFg : balanceTextColor(tone),
+                          fontWeight: "700",
+                        }}
+                      />
+                    </HStack>
+                  </View>
+                  <View
+                    style={{
+                      paddingHorizontal: space.lg,
+                      paddingVertical: space.md,
+                    }}
+                  >
+                    <Stack gap="sm">
+                      <Text variant="muted">
+                        {a.type} {a.mask ? `· •••${a.mask}` : ""}
+                        {(() => {
+                          const ago = relativeAgo(a.last_synced_at ?? null);
+                          return ago ? ` · synced ${ago}` : "";
+                        })()}
+                      </Text>
+                      {a.type === "depository" &&
+                      effective[a.id] !== undefined &&
+                      effective[a.id] !== a.current_balance ? (
+                        <HStack justify="space-between">
+                          <Text variant="muted">Effective Available</Text>
+                          <Money
+                            cents={effective[a.id]!}
+                            style={{
+                              color: balanceTextColor(
+                                accountBalanceTone({
+                                  type: a.type,
+                                  current_balance: effective[a.id] ?? null,
+                                }),
+                              ),
+                            }}
+                          />
+                        </HStack>
+                      ) : null}
+                      {badges.length > 0 ? (
+                        <HStack gap="sm" style={{ flexWrap: "wrap" }}>
+                          {badges.map((b) => (
+                            <View
+                              key={b}
+                              style={{
+                                paddingHorizontal: space.sm,
+                                paddingVertical: 4,
+                                borderRadius: radius.pill,
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                              }}
+                            >
+                              <Text variant="muted" style={{ fontSize: 12 }}>
+                                {b}
+                              </Text>
+                            </View>
+                          ))}
+                        </HStack>
+                      ) : null}
+                      {needsReconnect && a.plaid_item_id ? (
+                        <Stack gap="xs">
+                          <Button
+                            label={
+                              reconnectingItemId === a.plaid_item_id
+                                ? "Reconnecting…"
+                                : "Reconnect"
+                            }
+                            variant="secondary"
+                            disabled={reconnectingItemId !== null}
+                            onPress={() => reconnect(a.plaid_item_id!)}
+                          />
+                          {reconnectError && reconnectingItemId === null ? (
+                            <Text style={{ color: colors.negative, fontSize: 12 }}>
+                              {reconnectError}
+                            </Text>
+                          ) : null}
+                        </Stack>
+                      ) : null}
+                      {a.type === "credit" || a.type === "loan" ? (
+                        <Button
+                          label="Track as goal"
+                          variant="ghost"
+                          onPress={() => {
+                            useApp.getState().setPendingGoalDraft({
+                              account_id: a.id,
+                              account_name: accountDisplayName(a),
+                              balance_cents: Math.abs(a.current_balance ?? 0),
+                            });
+                            router.push("/(tabs)/goals");
+                          }}
+                        />
+                      ) : null}
+                    </Stack>
+                  </View>
+                </Card>
+              </Pressable>
+            );
+          })}
+        </Stack>
+      ))}
       {rows.length === 0 && sharedView ? (
         <Text variant="muted">Nothing shared into this space yet. Open an account to share it.</Text>
       ) : null}

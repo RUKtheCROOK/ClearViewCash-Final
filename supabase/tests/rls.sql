@@ -51,8 +51,8 @@ values
   ('c0000000-0000-0000-0000-000000000002', 'charlie@test', crypt('x', gen_salt('bf')), now(), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated')
 on conflict (id) do nothing;
 
-insert into public.spaces (id, owner_user_id, name, kind, tint)
-values ('c0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'House', 'shared', '#10B981');
+insert into public.spaces (id, owner_user_id, name, tint)
+values ('c0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'House', '#10B981');
 
 insert into public.space_members (space_id, user_id, role, accepted_at)
 values
@@ -81,15 +81,14 @@ insert into public.transaction_shares (transaction_id, space_id, hidden) values
   ('f0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', true),
   ('f0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', false);
 
--- Capture Alice's auto-created personal space id (made by the on_auth_user_created
+-- Capture Alice's auto-created default space id (made by the on_auth_user_created
 -- trigger) so we can reference it from Bob's session for write-attempt tests.
 do $$
 declare v_id uuid;
 begin
-  select id into v_id from public.spaces
-   where owner_user_id = 'a0000000-0000-0000-0000-000000000001' and kind = 'personal'
-   limit 1;
-  perform set_config('test.alice_personal_space', v_id::text, false);
+  select default_space_id into v_id from public.users
+   where id = 'a0000000-0000-0000-0000-000000000001';
+  perform set_config('test.alice_default_space', v_id::text, false);
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -104,9 +103,10 @@ select _record(results_eq(
   'bob sees House space he is a member of'
 ));
 select _record(results_eq(
-  $$ select count(*) from public.spaces where owner_user_id = 'a0000000-0000-0000-0000-000000000001' and kind = 'personal' $$,
+  format($f$ select count(*) from public.spaces where id = %L $f$,
+    current_setting('test.alice_default_space')),
   $$ values (0::bigint) $$,
-  'bob does NOT see alice personal space'
+  'bob does NOT see alice default space'
 ));
 select _record(results_eq(
   $$ select count(*) from public.accounts where id = 'e0000000-0000-0000-0000-000000000001' $$,
@@ -158,9 +158,9 @@ select _record(lives_ok(
 select _record(throws_ok(
   format($f$ insert into public.bills(space_id, owner_user_id, name, amount, due_day, cadence, next_due_at, source)
      values (%L, 'b0000000-0000-0000-0000-000000000001', 'X', 100, 1, 'monthly', '2026-05-01', 'manual') $f$,
-     current_setting('test.alice_personal_space')),
+     current_setting('test.alice_default_space')),
   null,
-  'bob cannot write bills into alice personal space'
+  'bob cannot write bills into alice default space'
 ));
 
 select _as_user('a0000000-0000-0000-0000-000000000001');
@@ -178,7 +178,7 @@ select _record(results_eq(
 select _record(results_eq(
   $$ select count(*) from public.spaces $$,
   $$ values (2::bigint) $$,
-  'alice sees House and her personal space'
+  'alice sees House and her default space'
 ));
 select _record(lives_ok(
   $$ update public.spaces set tint = '#FF00AA' where id = 'c0000000-0000-0000-0000-000000000001' $$,

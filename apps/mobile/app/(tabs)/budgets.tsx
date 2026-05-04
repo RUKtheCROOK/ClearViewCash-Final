@@ -10,11 +10,14 @@ import {
 } from "@cvc/domain";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
+import { useEffectiveSharedView } from "../../lib/view";
+import { useSpaces } from "../../hooks/useSpaces";
 import { BudgetEditSheet, type EditableBudget } from "../../components/BudgetEditSheet";
 
 export default function Budgets() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const sharedView = useApp((s) => s.sharedView);
+  const { activeSpace } = useSpaces();
+  const { sharedView, restrictToOwnerId } = useEffectiveSharedView(activeSpace);
   const [budgets, setBudgets] = useState<EditableBudget[]>([]);
   const [spent, setSpent] = useState<Record<string, number>>({});
   const [txns60d, setTxns60d] = useState<CategorizedTxn[]>([]);
@@ -35,6 +38,7 @@ export default function Budgets() {
     const txns = (await getTransactionsForView(supabase, {
       spaceId: activeSpaceId,
       sharedView,
+      restrictToOwnerId,
       since: sinceIso,
       fields: "category, amount, posted_at",
       limit: 2000,
@@ -42,7 +46,7 @@ export default function Budgets() {
     setTxns60d(txns);
     const thisMonth = txns.filter((t) => t.posted_at >= monthIso);
     setSpent(computeSpentByCategory(thisMonth));
-  }, [activeSpaceId, sharedView]);
+  }, [activeSpaceId, sharedView, restrictToOwnerId]);
 
   useEffect(() => {
     load();
