@@ -14,11 +14,55 @@ export async function createSpace(client: CvcSupabaseClient, args: { name: strin
   if (!user.user) throw new Error("Not authenticated");
   const { data, error } = await client
     .from("spaces")
-    .insert({ owner_user_id: user.user.id, name: args.name, tint: args.tint, kind: "shared" })
+    .insert({ owner_user_id: user.user.id, name: args.name, tint: args.tint })
     .select()
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function deleteSpace(client: CvcSupabaseClient, spaceId: string) {
+  const { error } = await client.from("spaces").delete().eq("id", spaceId);
+  if (error) throw error;
+}
+
+export async function updateSpace(
+  client: CvcSupabaseClient,
+  args: { space_id: string; name?: string; tint?: string },
+) {
+  const update: { name?: string; tint?: string } = {};
+  if (args.name !== undefined) update.name = args.name;
+  if (args.tint !== undefined) update.tint = args.tint;
+  const { data, error } = await client
+    .from("spaces")
+    .update(update)
+    .eq("id", args.space_id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateMemberPermissions(
+  client: CvcSupabaseClient,
+  args: {
+    space_id: string;
+    user_id: string;
+    can_invite?: boolean;
+    can_rename?: boolean;
+    can_delete?: boolean;
+  },
+) {
+  const update: { can_invite?: boolean; can_rename?: boolean; can_delete?: boolean } = {};
+  if (args.can_invite !== undefined) update.can_invite = args.can_invite;
+  if (args.can_rename !== undefined) update.can_rename = args.can_rename;
+  if (args.can_delete !== undefined) update.can_delete = args.can_delete;
+  const { error } = await client
+    .from("space_members")
+    .update(update)
+    .eq("space_id", args.space_id)
+    .eq("user_id", args.user_id);
+  if (error) throw error;
 }
 
 export async function inviteToSpace(client: CvcSupabaseClient, args: { space_id: string; email: string }) {
@@ -316,6 +360,29 @@ export async function deleteAccount(client: CvcSupabaseClient, accountId: string
   if (error) throw error;
 }
 
+/**
+ * Update per-user presentation overrides on an account. Patches only the
+ * keys present in `args` so callers can change one field without disturbing
+ * the other. Pass `null` for either field to clear it back to default.
+ */
+export async function updateAccountSettings(
+  client: CvcSupabaseClient,
+  args: { id: string; display_name?: string | null; color?: string | null },
+) {
+  const patch: { display_name?: string | null; color?: string | null } = {};
+  if (args.display_name !== undefined) patch.display_name = args.display_name;
+  if (args.color !== undefined) patch.color = args.color;
+  if (Object.keys(patch).length === 0) return null;
+  const { data, error } = await client
+    .from("accounts")
+    .update(patch)
+    .eq("id", args.id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 export async function deleteAccounts(client: CvcSupabaseClient, accountIds: string[]) {
   if (accountIds.length === 0) return;
   const { error } = await client.from("accounts").delete().in("id", accountIds);
@@ -430,6 +497,31 @@ export async function upsertGoal(client: CvcSupabaseClient, goal: GoalUpsert) {
 
 export async function deleteGoal(client: CvcSupabaseClient, id: string) {
   const { error } = await client.from("goals").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function setGoalShare(
+  client: CvcSupabaseClient,
+  args: { goal_id: string; space_id: string },
+) {
+  const { data, error } = await client
+    .from("goal_shares")
+    .upsert(args, { onConflict: "goal_id,space_id" })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function removeGoalShare(
+  client: CvcSupabaseClient,
+  args: { goal_id: string; space_id: string },
+) {
+  const { error } = await client
+    .from("goal_shares")
+    .delete()
+    .eq("goal_id", args.goal_id)
+    .eq("space_id", args.space_id);
   if (error) throw error;
 }
 

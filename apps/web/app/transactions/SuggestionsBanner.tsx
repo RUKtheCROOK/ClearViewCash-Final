@@ -103,6 +103,7 @@ export function SuggestionsBanner({ client, txns, spaceId, onPromoted }: Props) 
         linked_account_id: null,
         source: "detected" as const,
         recurring_group_id: null,
+        category: null,
       };
       if (group.is_inbound) {
         await upsertIncomeEvent(client, payload);

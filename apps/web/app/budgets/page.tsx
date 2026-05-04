@@ -11,6 +11,7 @@ import {
   effectiveLimit,
   type CategorizedTxn,
 } from "@cvc/domain";
+import { effectiveSharedView, type SpaceMember } from "../../lib/view";
 import { EditPanel, type EditableBudget } from "./EditPanel";
 
 const supabase = createClient<Database>(
@@ -22,16 +23,17 @@ interface Space {
   id: string;
   name: string;
   tint: string;
-  kind: "personal" | "shared";
+  members?: SpaceMember[];
 }
 
 export default function BudgetsPage() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
-  const [sharedView, setSharedView] = useState(false);
+  const [rawSharedView, setRawSharedView] = useState(false);
   const [budgets, setBudgets] = useState<EditableBudget[]>([]);
   const [txns60d, setTxns60d] = useState<CategorizedTxn[]>([]);
   const [editing, setEditing] = useState<EditableBudget | null>(null);
@@ -42,9 +44,19 @@ export default function BudgetsPage() {
     (async () => {
       const { data } = await supabase.auth.getSession();
       setSignedIn(!!data.session);
+      setCurrentUserId(data.session?.user?.id ?? null);
       setAuthReady(true);
     })();
   }, []);
+
+  const activeSpace = useMemo(
+    () => spaces.find((s) => s.id === activeSpaceId) ?? null,
+    [spaces, activeSpaceId],
+  );
+  const { sharedView, restrictToOwnerId, toggleVisible } = useMemo(
+    () => effectiveSharedView(activeSpace, rawSharedView, currentUserId),
+    [activeSpace, rawSharedView, currentUserId],
+  );
 
   useEffect(() => {
     if (!signedIn) return;
@@ -72,11 +84,12 @@ export default function BudgetsPage() {
     getTransactionsForView(supabase, {
       spaceId: activeSpaceId,
       sharedView,
+      restrictToOwnerId,
       since: since.toISOString().slice(0, 10),
       fields: "category, amount, posted_at",
       limit: 2000,
     }).then((rows) => setTxns60d(rows as unknown as CategorizedTxn[]));
-  }, [signedIn, activeSpaceId, sharedView, reloadCount]);
+  }, [signedIn, activeSpaceId, sharedView, restrictToOwnerId, reloadCount]);
 
   const monthStart = useMemo(() => {
     const d = new Date();
@@ -131,8 +144,6 @@ export default function BudgetsPage() {
     );
   }
 
-  const activeSpace = spaces.find((s) => s.id === activeSpaceId) ?? null;
-
   return (
     <main className="container" style={{ padding: "32px 0" }}>
       <div
@@ -172,15 +183,15 @@ export default function BudgetsPage() {
         >
           {spaces.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name} {s.kind === "personal" ? "(personal)" : ""}
+              {s.name}
             </option>
           ))}
         </select>
-        {activeSpace && activeSpace.kind !== "personal" ? (
+        {toggleVisible ? (
           <button
             className={sharedView ? "btn btn-primary" : "btn btn-secondary"}
             style={{ padding: "8px 14px", fontSize: 14 }}
-            onClick={() => setSharedView((v) => !v)}
+            onClick={() => setRawSharedView((v) => !v)}
           >
             {sharedView ? "Shared view" : "My view"}
           </button>

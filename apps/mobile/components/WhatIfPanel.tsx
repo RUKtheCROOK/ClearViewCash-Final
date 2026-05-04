@@ -207,6 +207,7 @@ function ScenarioForm({
       linked_account_id: defaultFundingAccountId,
       source: "manual",
       recurring_group_id: null,
+      category: null,
     };
     onSubmit(synthetic);
   };

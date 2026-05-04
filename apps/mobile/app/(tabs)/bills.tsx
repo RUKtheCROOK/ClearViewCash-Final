@@ -6,10 +6,12 @@ import {
   getTransactionsForView,
   recordBillPayment,
 } from "@cvc/api-client";
-import { computeBillStatus, todayIso, type BillCycleStatus } from "@cvc/domain";
-import type { Cadence } from "@cvc/types";
+import { CVC_CATEGORIES, computeBillStatus, todayIso, type BillCycleStatus } from "@cvc/domain";
+import type { BillListRow as BillRow } from "@cvc/types";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
+import { useEffectiveSharedView } from "../../lib/view";
+import { useSpaces } from "../../hooks/useSpaces";
 import { BillEditSheet, type EditableBill } from "../../components/BillEditSheet";
 import { RecurringSuggestionsBanner } from "../../components/RecurringSuggestionsBanner";
 import { BillsCalendar } from "../../components/BillsCalendar";
@@ -21,25 +23,6 @@ interface MinimalTxn {
   posted_at: string;
   pending: boolean;
   is_recurring: boolean;
-}
-
-interface BillRow {
-  id: string;
-  space_id: string;
-  owner_user_id: string;
-  name: string;
-  amount: number;
-  next_due_at: string;
-  cadence: Cadence;
-  autopay: boolean;
-  source: "detected" | "manual";
-  recurring_group_id: string | null;
-  latest_payment: {
-    id: string;
-    amount: number;
-    paid_at: string;
-    status: "paid" | "overdue" | "skipped";
-  } | null;
 }
 
 const STATUS_LABEL: Record<BillCycleStatus, string> = {
@@ -57,6 +40,7 @@ const STATUS_COLOR: Record<BillCycleStatus, string> = {
 type StatusFilter = "all" | BillCycleStatus;
 type CadenceFilter = "all" | "recurring" | "one_time";
 type AutopayFilter = "all" | "autopay" | "manual";
+type CategoryFilter = "all" | string;
 type ViewMode = "list" | "calendar";
 
 interface PillProps {
@@ -85,7 +69,8 @@ function Pill({ label, selected, onPress }: PillProps) {
 
 export default function Bills() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const sharedView = useApp((s) => s.sharedView);
+  const { activeSpace } = useSpaces();
+  const { sharedView, restrictToOwnerId } = useEffectiveSharedView(activeSpace);
   const [bills, setBills] = useState<BillRow[]>([]);
   const [outflowTxns, setOutflowTxns] = useState<MinimalTxn[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -96,6 +81,7 @@ export default function Bills() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [cadenceFilter, setCadenceFilter] = useState<CadenceFilter>("all");
   const [autopayFilter, setAutopayFilter] = useState<AutopayFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [calendarSelectedIso, setCalendarSelectedIso] = useState<string | null>(null);
   const today = todayIso();
@@ -106,13 +92,14 @@ export default function Bills() {
     getTransactionsForView(supabase, {
       spaceId: activeSpaceId,
       sharedView,
+      restrictToOwnerId,
       limit: 200,
       fields: "id, merchant_name, amount, posted_at, pending, is_recurring",
     }).then((rows) => {
       const minimal = (rows as unknown as MinimalTxn[]).filter((t) => t.amount < 0);
       setOutflowTxns(minimal);
     });
-  }, [activeSpaceId, sharedView]);
+  }, [activeSpaceId, sharedView, restrictToOwnerId]);
 
   useEffect(() => {
     reload();
@@ -122,6 +109,12 @@ export default function Bills() {
     supabase.auth.getUser().then(({ data }) => setOwnerUserId(data.user?.id ?? null));
   }, []);
 
+  const categorySuggestions = useMemo(() => {
+    const set = new Set<string>(CVC_CATEGORIES);
+    for (const b of bills) if (b.category) set.add(b.category);
+    return Array.from(set).sort();
+  }, [bills]);
+
   const filtered = useMemo(() => {
     return bills.filter((b) => {
       const status = computeBillStatus(b.next_due_at, today);
@@ -130,12 +123,22 @@ export default function Bills() {
       if (cadenceFilter === "one_time" && b.cadence !== "custom") return false;
       if (autopayFilter === "autopay" && !b.autopay) return false;
       if (autopayFilter === "manual" && b.autopay) return false;
+      if (categoryFilter !== "all" && (b.category ?? "") !== categoryFilter) return false;
       if (viewMode === "calendar" && calendarSelectedIso && b.next_due_at !== calendarSelectedIso) {
         return false;
       }
       return true;
     });
-  }, [bills, statusFilter, cadenceFilter, autopayFilter, viewMode, calendarSelectedIso, today]);
+  }, [
+    bills,
+    statusFilter,
+    cadenceFilter,
+    autopayFilter,
+    categoryFilter,
+    viewMode,
+    calendarSelectedIso,
+    today,
+  ]);
 
   async function markPaid(b: BillRow) {
     setBusy(b.id);
@@ -173,6 +176,7 @@ export default function Bills() {
       autopay: b.autopay,
       source: b.source,
       recurring_group_id: b.recurring_group_id,
+      category: b.category,
     });
     setSheetOpen(true);
   }
@@ -234,6 +238,20 @@ export default function Bills() {
           <Pill label="Autopay" selected={autopayFilter === "autopay"} onPress={() => setAutopayFilter(autopayFilter === "autopay" ? "all" : "autopay")} />
           <Pill label="Manual" selected={autopayFilter === "manual"} onPress={() => setAutopayFilter(autopayFilter === "manual" ? "all" : "manual")} />
         </HStack>
+        <Text variant="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Category
+        </Text>
+        <HStack gap="sm" style={{ flexWrap: "wrap" }}>
+          <Pill label="All" selected={categoryFilter === "all"} onPress={() => setCategoryFilter("all")} />
+          {categorySuggestions.map((c) => (
+            <Pill
+              key={c}
+              label={c}
+              selected={categoryFilter === c}
+              onPress={() => setCategoryFilter(categoryFilter === c ? "all" : c)}
+            />
+          ))}
+        </HStack>
       </Stack>
 
       {error ? <Text style={{ color: colors.negative }}>{error}</Text> : null}
@@ -252,6 +270,21 @@ export default function Bills() {
                       {b.autopay ? " · autopay" : ""}
                       {b.source === "detected" ? " · auto-detected" : ""}
                     </Text>
+                    {b.category ? (
+                      <View
+                        style={{
+                          alignSelf: "flex-start",
+                          paddingHorizontal: space.sm,
+                          paddingVertical: 2,
+                          borderRadius: radius.pill,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          backgroundColor: colors.surface,
+                        }}
+                      >
+                        <Text variant="muted" style={{ fontSize: 11 }}>{b.category}</Text>
+                      </View>
+                    ) : null}
                     {b.latest_payment ? (
                       <Text variant="muted" style={{ fontSize: 12 }}>
                         Last paid {b.latest_payment.paid_at}
@@ -309,6 +342,7 @@ export default function Bills() {
         bill={editing}
         spaceId={activeSpaceId}
         ownerUserId={ownerUserId}
+        categorySuggestions={categorySuggestions}
         onClose={() => setSheetOpen(false)}
         onSaved={reload}
       />

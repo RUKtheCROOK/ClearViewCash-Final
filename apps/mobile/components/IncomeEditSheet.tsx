@@ -6,28 +6,17 @@ import {
   markIncomeReceived,
   upsertIncomeEvent,
 } from "@cvc/api-client";
-import type { Cadence } from "@cvc/types";
+import type { Cadence, EditableIncome } from "@cvc/types";
 import { supabase } from "../lib/supabase";
 
-export interface EditableIncome {
-  id: string;
-  space_id: string;
-  owner_user_id: string;
-  name: string;
-  amount: number;
-  cadence: Cadence;
-  next_due_at: string;
-  source: "detected" | "manual";
-  recurring_group_id: string | null;
-  actual_amount: number | null;
-  received_at: string | null;
-}
+export type { EditableIncome };
 
 interface Props {
   visible: boolean;
   income: EditableIncome | null;
   spaceId: string | null;
   ownerUserId: string | null;
+  categorySuggestions: string[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -61,7 +50,15 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function IncomeEditSheet({ visible, income, spaceId, ownerUserId, onClose, onSaved }: Props) {
+export function IncomeEditSheet({
+  visible,
+  income,
+  spaceId,
+  ownerUserId,
+  categorySuggestions,
+  onClose,
+  onSaved,
+}: Props) {
   const isNew = !income;
   const [name, setName] = useState("");
   const [amountStr, setAmountStr] = useState("");
@@ -69,6 +66,7 @@ export function IncomeEditSheet({ visible, income, spaceId, ownerUserId, onClose
   const [nextDueAt, setNextDueAt] = useState("");
   const [actualStr, setActualStr] = useState("");
   const [receivedAt, setReceivedAt] = useState("");
+  const [category, setCategory] = useState("");
   const [saving, setSaving] = useState(false);
   const [marking, setMarking] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -84,6 +82,7 @@ export function IncomeEditSheet({ visible, income, spaceId, ownerUserId, onClose
       setNextDueAt(income.next_due_at);
       setActualStr(centsToDollarStr(income.actual_amount ?? income.amount));
       setReceivedAt(income.received_at ?? todayIso());
+      setCategory(income.category ?? "");
     } else {
       setName("");
       setAmountStr("");
@@ -91,6 +90,7 @@ export function IncomeEditSheet({ visible, income, spaceId, ownerUserId, onClose
       setNextDueAt("");
       setActualStr("");
       setReceivedAt(todayIso());
+      setCategory("");
     }
   }, [visible, income]);
 
@@ -126,6 +126,7 @@ export function IncomeEditSheet({ visible, income, spaceId, ownerUserId, onClose
         autopay: false,
         due_day: dayOfMonth(nextDueAt),
         source: income?.source ?? "manual",
+        category: category.trim() || null,
       });
       onSaved();
       onClose();
@@ -289,6 +290,53 @@ export function IncomeEditSheet({ visible, income, spaceId, ownerUserId, onClose
                     );
                   })}
                 </HStack>
+              </Stack>
+
+              <Stack gap="sm">
+                <Text variant="muted" style={{ fontSize: 12 }}>Category</Text>
+                <TextInput
+                  value={category}
+                  onChangeText={setCategory}
+                  placeholder="e.g. Income"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    padding: space.md,
+                    backgroundColor: colors.surface,
+                  }}
+                />
+                {categorySuggestions.length ? (
+                  <HStack gap="sm" style={{ flexWrap: "wrap" }}>
+                    {categorySuggestions.slice(0, 12).map((c) => {
+                      const selected = category === c;
+                      return (
+                        <Pressable
+                          key={c}
+                          onPress={() => setCategory(c)}
+                          style={{
+                            paddingHorizontal: space.md,
+                            paddingVertical: space.sm,
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: selected ? colors.primary : colors.border,
+                            backgroundColor: selected ? colors.primary : colors.surface,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: selected ? "#fff" : colors.text,
+                              fontSize: 12,
+                              fontWeight: selected ? "600" : "400",
+                            }}
+                          >
+                            {c}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </HStack>
+                ) : null}
               </Stack>
 
               {!isNew ? (

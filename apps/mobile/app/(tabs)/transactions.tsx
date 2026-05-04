@@ -10,8 +10,12 @@ import {
 import { displayMerchantName } from "@cvc/domain";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
+import { useEffectiveSharedView } from "../../lib/view";
+import { useSpaces } from "../../hooks/useSpaces";
+import { useTier } from "../../hooks/useTier";
 import { TransactionEditSheet } from "../../components/TransactionEditSheet";
 import { RecurringSuggestionsBanner } from "../../components/RecurringSuggestionsBanner";
+import { TransactionsChartSection } from "../../components/TransactionsChartSection";
 
 interface Txn {
   id: string;
@@ -43,7 +47,9 @@ type PickerKind = "account" | "category" | "person" | null;
 
 export default function Transactions() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const sharedView = useApp((s) => s.sharedView);
+  const { activeSpace } = useSpaces();
+  const { sharedView, restrictToOwnerId, toggleVisible } = useEffectiveSharedView(activeSpace);
+  const { tier } = useTier();
   const [txns, setTxns] = useState<Txn[]>([]);
   const [accountOpts, setAccountOpts] = useState<AccountOpt[]>([]);
   const [memberOpts, setMemberOpts] = useState<MemberOpt[]>([]);
@@ -63,22 +69,25 @@ export default function Transactions() {
     getTransactionsForView(supabase, {
       spaceId: activeSpaceId,
       sharedView,
+      restrictToOwnerId,
       limit: 200,
       accountIds: accountIds.size ? Array.from(accountIds) : undefined,
       categories: categories.size ? Array.from(categories) : undefined,
       ownerUserIds: ownerUserIds.size ? Array.from(ownerUserIds) : undefined,
     }).then((data) => setTxns(data as unknown as Txn[]));
-  }, [activeSpaceId, sharedView, accountIds, categories, ownerUserIds, reloadCount]);
+  }, [activeSpaceId, sharedView, restrictToOwnerId, accountIds, categories, ownerUserIds, reloadCount]);
 
   useEffect(() => {
-    getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView }).then((accs) => {
-      const opts = (accs as Array<{ id: string; name: string }>).map((a) => ({
-        id: a.id,
-        name: a.name,
-      }));
-      setAccountOpts(opts);
-    });
-  }, [activeSpaceId, sharedView]);
+    getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView, restrictToOwnerId }).then(
+      (accs) => {
+        const opts = (accs as Array<{ id: string; name: string }>).map((a) => ({
+          id: a.id,
+          name: a.name,
+        }));
+        setAccountOpts(opts);
+      },
+    );
+  }, [activeSpaceId, sharedView, restrictToOwnerId]);
 
   useEffect(() => {
     if (!sharedView || !activeSpaceId) {
@@ -169,9 +178,11 @@ export default function Transactions() {
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
       <Text variant="muted">
-        {sharedView
-          ? "Shared view: showing transactions visible in this space."
-          : "My view: every transaction on accounts you own."}
+        {!toggleVisible
+          ? "Showing every transaction on accounts you own."
+          : sharedView
+            ? "Shared view: showing transactions visible in this space."
+            : "My view: showing transactions on accounts you contributed to this space."}
       </Text>
       <TextInput
         placeholder="Search merchant…"
@@ -263,6 +274,8 @@ export default function Transactions() {
         spaceId={activeSpaceId}
         onPromoted={() => setReloadCount((c) => c + 1)}
       />
+
+      {tier !== "starter" ? <TransactionsChartSection txns={filtered} /> : null}
 
       <Card padded={false}>
         <Stack gap="sm">

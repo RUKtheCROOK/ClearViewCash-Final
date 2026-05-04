@@ -9,15 +9,11 @@ export type MoneyCents = number;
 export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export type IsoDate = string;
 
-export const SpaceKindSchema = z.enum(["personal", "shared"]);
-export type SpaceKind = z.infer<typeof SpaceKindSchema>;
-
 export const SpaceSchema = z.object({
   id: UuidSchema,
   owner_user_id: UuidSchema,
   name: z.string().min(1).max(64),
   tint: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  kind: SpaceKindSchema,
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -32,6 +28,9 @@ export const SpaceMemberSchema = z.object({
   role: SpaceRoleSchema,
   invited_email: z.string().email().nullable(),
   accepted_at: z.string().nullable(),
+  can_invite: z.boolean(),
+  can_rename: z.boolean(),
+  can_delete: z.boolean(),
 });
 export type SpaceMember = z.infer<typeof SpaceMemberSchema>;
 
@@ -44,12 +43,14 @@ export const AccountSchema = z.object({
   owner_user_id: UuidSchema,
   plaid_account_id: z.string(),
   name: z.string(),
+  display_name: z.string().nullable(),
   mask: z.string().nullable(),
   type: AccountTypeSchema,
   subtype: z.string().nullable(),
   current_balance: MoneyCentsSchema.nullable(),
   available_balance: MoneyCentsSchema.nullable(),
   currency: z.string().length(3),
+  color: z.string().nullable(),
 });
 export type Account = z.infer<typeof AccountSchema>;
 
@@ -95,6 +96,7 @@ export const BillSchema = z.object({
   linked_account_id: UuidSchema.nullable(),
   source: z.enum(["detected", "manual"]),
   recurring_group_id: UuidSchema.nullable(),
+  category: z.string().nullable(),
 });
 export type Bill = z.infer<typeof BillSchema>;
 
@@ -103,6 +105,39 @@ export const IncomeEventSchema = BillSchema.extend({
   received_at: IsoDateSchema.nullable(),
 });
 export type IncomeEvent = z.infer<typeof IncomeEventSchema>;
+
+export type EditableBill = Pick<
+  Bill,
+  | "id"
+  | "space_id"
+  | "owner_user_id"
+  | "name"
+  | "amount"
+  | "cadence"
+  | "next_due_at"
+  | "autopay"
+  | "source"
+  | "recurring_group_id"
+  | "category"
+>;
+
+export type EditableIncome = EditableBill & {
+  actual_amount: number | null;
+  received_at: string | null;
+};
+
+export interface BillPaymentSummary {
+  id: string;
+  amount: number;
+  paid_at: string;
+  status: "paid" | "overdue" | "skipped";
+}
+
+export type BillListRow = EditableBill & {
+  latest_payment: BillPaymentSummary | null;
+};
+
+export type IncomeListRow = EditableIncome;
 
 export const PaymentLinkCardSchema = z.object({
   payment_link_id: UuidSchema,
@@ -141,5 +176,19 @@ export const GoalSchema = z.object({
   target_date: IsoDateSchema.nullable(),
   linked_account_id: UuidSchema.nullable(),
   monthly_contribution: MoneyCentsSchema.nullable(),
+  apr_bps: z.number().int().min(0).nullable(),
+  term_months: z.number().int().positive().nullable(),
 });
 export type Goal = z.infer<typeof GoalSchema>;
+
+export const GoalShareSchema = z.object({
+  goal_id: UuidSchema,
+  space_id: UuidSchema,
+});
+export type GoalShare = z.infer<typeof GoalShareSchema>;
+
+export const GoalTrackerSchema = z.object({
+  goal_id: UuidSchema,
+  user_id: UuidSchema,
+});
+export type GoalTracker = z.infer<typeof GoalTrackerSchema>;

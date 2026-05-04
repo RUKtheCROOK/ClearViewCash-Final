@@ -145,7 +145,7 @@ export default function AccountShare() {
     setVisibility((v) => ({ ...v, [spaceId]: nextIds }));
   }
 
-  const sharableSpaces = spaces.filter((s) => s.kind === "shared");
+  const sharableSpaces = spaces;
 
   return (
     <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
@@ -156,12 +156,12 @@ export default function AccountShare() {
         </Text>
       </Stack>
       <Text variant="muted">
-        Choose which shared spaces see this account. Toggle off both rows to fully un-share.
+        Choose which spaces see this account. Toggle off both rows to fully un-share.
       </Text>
       {sharableSpaces.length === 0 ? (
         <Card>
           <Text variant="muted">
-            No shared spaces yet. Create one in Settings → Spaces &amp; Members first.
+            No spaces yet. Create one in Settings → Spaces &amp; Members first.
           </Text>
         </Card>
       ) : null}

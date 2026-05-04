@@ -8,21 +8,10 @@ import {
   upsertBill,
 } from "@cvc/api-client";
 import { displayMerchantName } from "@cvc/domain";
-import type { Cadence } from "@cvc/types";
+import type { Cadence, EditableBill } from "@cvc/types";
 import { supabase } from "../lib/supabase";
 
-export interface EditableBill {
-  id: string;
-  space_id: string;
-  owner_user_id: string;
-  name: string;
-  amount: number;
-  cadence: Cadence;
-  next_due_at: string;
-  autopay: boolean;
-  source: "detected" | "manual";
-  recurring_group_id: string | null;
-}
+export type { EditableBill };
 
 interface PaymentRow {
   id: string;
@@ -45,6 +34,7 @@ interface Props {
   bill: EditableBill | null;
   spaceId: string | null;
   ownerUserId: string | null;
+  categorySuggestions: string[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -74,13 +64,22 @@ function isValidIsoDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-export function BillEditSheet({ visible, bill, spaceId, ownerUserId, onClose, onSaved }: Props) {
+export function BillEditSheet({
+  visible,
+  bill,
+  spaceId,
+  ownerUserId,
+  categorySuggestions,
+  onClose,
+  onSaved,
+}: Props) {
   const isNew = !bill;
   const [name, setName] = useState("");
   const [amountStr, setAmountStr] = useState("");
   const [cadence, setCadence] = useState<Cadence>("monthly");
   const [nextDueAt, setNextDueAt] = useState("");
   const [autopay, setAutopay] = useState(false);
+  const [category, setCategory] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,12 +95,14 @@ export function BillEditSheet({ visible, bill, spaceId, ownerUserId, onClose, on
       setCadence(bill.cadence);
       setNextDueAt(bill.next_due_at);
       setAutopay(bill.autopay);
+      setCategory(bill.category ?? "");
     } else {
       setName("");
       setAmountStr("");
       setCadence("monthly");
       setNextDueAt("");
       setAutopay(false);
+      setCategory("");
       setPayments([]);
       setMatched([]);
     }
@@ -151,6 +152,7 @@ export function BillEditSheet({ visible, bill, spaceId, ownerUserId, onClose, on
         autopay,
         due_day: dayOfMonth(nextDueAt),
         source: bill?.source ?? "manual",
+        category: category.trim() || null,
       });
       onSaved();
       onClose();
@@ -278,6 +280,53 @@ export function BillEditSheet({ visible, bill, spaceId, ownerUserId, onClose, on
                     );
                   })}
                 </HStack>
+              </Stack>
+
+              <Stack gap="sm">
+                <Text variant="muted" style={{ fontSize: 12 }}>Category</Text>
+                <TextInput
+                  value={category}
+                  onChangeText={setCategory}
+                  placeholder="e.g. Bills & Utilities"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: radius.md,
+                    padding: space.md,
+                    backgroundColor: colors.surface,
+                  }}
+                />
+                {categorySuggestions.length ? (
+                  <HStack gap="sm" style={{ flexWrap: "wrap" }}>
+                    {categorySuggestions.slice(0, 12).map((c) => {
+                      const selected = category === c;
+                      return (
+                        <Pressable
+                          key={c}
+                          onPress={() => setCategory(c)}
+                          style={{
+                            paddingHorizontal: space.md,
+                            paddingVertical: space.sm,
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: selected ? colors.primary : colors.border,
+                            backgroundColor: selected ? colors.primary : colors.surface,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: selected ? "#fff" : colors.text,
+                              fontSize: 12,
+                              fontWeight: selected ? "600" : "400",
+                            }}
+                          >
+                            {c}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </HStack>
+                ) : null}
               </Stack>
 
               <HStack justify="space-between" align="center">

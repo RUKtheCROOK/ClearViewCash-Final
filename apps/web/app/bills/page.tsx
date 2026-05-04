@@ -10,8 +10,8 @@ import {
   getTransactionsForView,
   recordBillPayment,
 } from "@cvc/api-client";
-import { computeBillStatus, todayIso, type BillCycleStatus } from "@cvc/domain";
-import type { Cadence } from "@cvc/types";
+import { CVC_CATEGORIES, computeBillStatus, todayIso, type BillCycleStatus } from "@cvc/domain";
+import type { BillListRow as BillRow } from "@cvc/types";
 import { EditPanel, type EditableBill } from "./EditPanel";
 import { Calendar } from "./Calendar";
 import { SuggestionsBanner } from "../transactions/SuggestionsBanner";
@@ -20,25 +20,6 @@ const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
 );
-
-interface BillRow {
-  id: string;
-  space_id: string;
-  owner_user_id: string;
-  name: string;
-  amount: number;
-  next_due_at: string;
-  cadence: Cadence;
-  autopay: boolean;
-  source: "detected" | "manual";
-  recurring_group_id: string | null;
-  latest_payment: {
-    id: string;
-    amount: number;
-    paid_at: string;
-    status: "paid" | "overdue" | "skipped";
-  } | null;
-}
 
 interface MinimalTxn {
   id: string;
@@ -53,12 +34,12 @@ interface Space {
   id: string;
   name: string;
   tint: string;
-  kind: "personal" | "shared";
 }
 
 type StatusFilter = "all" | BillCycleStatus;
 type CadenceFilter = "all" | "recurring" | "one_time";
 type AutopayFilter = "all" | "autopay" | "manual";
+type CategoryFilter = "all" | string;
 type ViewMode = "list" | "calendar";
 
 const STATUS_LABEL: Record<BillCycleStatus, string> = {
@@ -94,6 +75,7 @@ export default function BillsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [cadenceFilter, setCadenceFilter] = useState<CadenceFilter>("all");
   const [autopayFilter, setAutopayFilter] = useState<AutopayFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [calendarSelectedIso, setCalendarSelectedIso] = useState<string | null>(null);
   const [reloadCount, setReloadCount] = useState(0);
@@ -143,6 +125,12 @@ export default function BillsPage() {
     reload();
   }, [signedIn, reload, reloadCount]);
 
+  const categorySuggestions = useMemo(() => {
+    const set = new Set<string>(CVC_CATEGORIES);
+    for (const b of bills) if (b.category) set.add(b.category);
+    return Array.from(set).sort();
+  }, [bills]);
+
   const filtered = useMemo(() => {
     return bills.filter((b) => {
       const status = computeBillStatus(b.next_due_at, today);
@@ -151,12 +139,22 @@ export default function BillsPage() {
       if (cadenceFilter === "one_time" && b.cadence !== "custom") return false;
       if (autopayFilter === "autopay" && !b.autopay) return false;
       if (autopayFilter === "manual" && b.autopay) return false;
+      if (categoryFilter !== "all" && (b.category ?? "") !== categoryFilter) return false;
       if (viewMode === "calendar" && calendarSelectedIso && b.next_due_at !== calendarSelectedIso) {
         return false;
       }
       return true;
     });
-  }, [bills, statusFilter, cadenceFilter, autopayFilter, viewMode, calendarSelectedIso, today]);
+  }, [
+    bills,
+    statusFilter,
+    cadenceFilter,
+    autopayFilter,
+    categoryFilter,
+    viewMode,
+    calendarSelectedIso,
+    today,
+  ]);
 
   async function markPaid(b: BillRow) {
     setBusy(b.id);
@@ -194,6 +192,7 @@ export default function BillsPage() {
       autopay: b.autopay,
       source: b.source,
       recurring_group_id: b.recurring_group_id,
+      category: b.category,
     });
     setPanelOpen(true);
   }
@@ -245,7 +244,7 @@ export default function BillsPage() {
         >
           {spaces.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name} {s.kind === "personal" ? "(personal)" : ""}
+              {s.name}
             </option>
           ))}
         </select>
@@ -301,7 +300,7 @@ export default function BillsPage() {
           </button>
         ))}
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
         {(["all", "recurring", "one_time"] as CadenceFilter[]).map((c) => (
           <button
             key={c}
@@ -326,6 +325,28 @@ export default function BillsPage() {
         >
           Manual
         </button>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+        <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Category
+        </span>
+        <button
+          onClick={() => setCategoryFilter("all")}
+          className={categoryFilter === "all" ? "btn btn-primary" : "btn btn-secondary"}
+          style={pillBtnStyle}
+        >
+          All
+        </button>
+        {categorySuggestions.map((c) => (
+          <button
+            key={c}
+            onClick={() => setCategoryFilter(categoryFilter === c ? "all" : c)}
+            className={categoryFilter === c ? "btn btn-primary" : "btn btn-secondary"}
+            style={pillBtnStyle}
+          >
+            {c}
+          </button>
+        ))}
       </div>
 
       {error ? <p style={{ color: "var(--negative, #DC2626)" }}>{error}</p> : null}
@@ -363,6 +384,22 @@ export default function BillsPage() {
                       {b.autopay ? " · autopay" : ""}
                       {b.source === "detected" ? " · auto-detected" : ""}
                     </div>
+                    {b.category ? (
+                      <span
+                        className="muted"
+                        style={{
+                          display: "inline-block",
+                          marginTop: 4,
+                          padding: "2px 8px",
+                          borderRadius: 999,
+                          border: "1px solid var(--border)",
+                          background: "var(--surface)",
+                          fontSize: 11,
+                        }}
+                      >
+                        {b.category}
+                      </span>
+                    ) : null}
                     {b.latest_payment ? (
                       <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
                         Last paid {b.latest_payment.paid_at}
@@ -406,6 +443,7 @@ export default function BillsPage() {
         open={panelOpen}
         spaceId={activeSpaceId}
         ownerUserId={ownerUserId}
+        categorySuggestions={categorySuggestions}
         onClose={() => setPanelOpen(false)}
         onSaved={() => setReloadCount((c) => c + 1)}
       />

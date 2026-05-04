@@ -18,6 +18,7 @@ const baseBill = (over: Partial<Bill>): Bill => ({
   linked_account_id: over.linked_account_id ?? null,
   source: "manual",
   recurring_group_id: null,
+  category: null,
   ...over,
 });
 

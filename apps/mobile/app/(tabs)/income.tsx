@@ -1,33 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 import { differenceInDays, parseISO } from "date-fns";
 import { Card, HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
 import {
   getIncomeEvents,
   getTransactionsForView,
 } from "@cvc/api-client";
-import type { Cadence } from "@cvc/types";
+import { CVC_CATEGORIES } from "@cvc/domain";
+import type { IncomeListRow as IncomeRow } from "@cvc/types";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
+import { useEffectiveSharedView } from "../../lib/view";
+import { useSpaces } from "../../hooks/useSpaces";
 import {
   IncomeEditSheet,
   type EditableIncome,
 } from "../../components/IncomeEditSheet";
 import { RecurringSuggestionsBanner } from "../../components/RecurringSuggestionsBanner";
 
-interface IncomeRow {
-  id: string;
-  space_id: string;
-  owner_user_id: string;
-  name: string;
-  amount: number;
-  next_due_at: string;
-  cadence: Cadence;
-  source: "detected" | "manual";
-  recurring_group_id: string | null;
-  actual_amount: number | null;
-  received_at: string | null;
-}
+type CategoryFilter = "all" | string;
 
 interface MinimalTxn {
   id: string;
@@ -52,12 +43,14 @@ function inRangeInclusive(iso: string, startIso: string, endIso: string): boolea
 
 export default function IncomeTab() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const sharedView = useApp((s) => s.sharedView);
+  const { activeSpace } = useSpaces();
+  const { sharedView, restrictToOwnerId } = useEffectiveSharedView(activeSpace);
   const [items, setItems] = useState<IncomeRow[]>([]);
   const [inflowTxns, setInflowTxns] = useState<MinimalTxn[]>([]);
   const [editing, setEditing] = useState<EditableIncome | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [ownerUserId, setOwnerUserId] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
 
   const reload = useCallback(() => {
     if (!activeSpaceId) return;
@@ -65,13 +58,14 @@ export default function IncomeTab() {
     getTransactionsForView(supabase, {
       spaceId: activeSpaceId,
       sharedView,
+      restrictToOwnerId,
       limit: 200,
       fields: "id, merchant_name, amount, posted_at, pending, is_recurring",
     }).then((rows) => {
       const inflows = (rows as unknown as MinimalTxn[]).filter((t) => t.amount > 0);
       setInflowTxns(inflows);
     });
-  }, [activeSpaceId, sharedView]);
+  }, [activeSpaceId, sharedView, restrictToOwnerId]);
 
   useEffect(() => {
     reload();
@@ -81,12 +75,19 @@ export default function IncomeTab() {
     supabase.auth.getUser().then(({ data }) => setOwnerUserId(data.user?.id ?? null));
   }, []);
 
+  const categorySuggestions = useMemo(() => {
+    const set = new Set<string>(CVC_CATEGORIES);
+    for (const i of items) if (i.category) set.add(i.category);
+    return Array.from(set).sort();
+  }, [items]);
+
   const upcoming = useMemo(() => {
     return items
       .filter((i) => !(i.cadence === "once" && i.received_at !== null))
+      .filter((i) => categoryFilter === "all" || (i.category ?? "") === categoryFilter)
       .slice()
       .sort((a, b) => a.next_due_at.localeCompare(b.next_due_at));
-  }, [items]);
+  }, [items, categoryFilter]);
 
   const next = upcoming[0];
   const daysUntilNext = next ? differenceInDays(parseISO(next.next_due_at), new Date()) : null;
@@ -138,8 +139,10 @@ export default function IncomeTab() {
       amount: i.amount,
       cadence: i.cadence,
       next_due_at: i.next_due_at,
+      autopay: i.autopay,
       source: i.source,
       recurring_group_id: i.recurring_group_id,
+      category: i.category,
       actual_amount: i.actual_amount,
       received_at: i.received_at,
     });
@@ -241,6 +244,46 @@ export default function IncomeTab() {
         </Card>
       ) : null}
 
+      <Stack gap="sm">
+        <Text variant="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Category
+        </Text>
+        <HStack gap="sm" style={{ flexWrap: "wrap" }}>
+          <Pressable
+            onPress={() => setCategoryFilter("all")}
+            style={{
+              paddingHorizontal: space.md,
+              paddingVertical: space.sm,
+              borderRadius: radius.pill,
+              backgroundColor: categoryFilter === "all" ? colors.primary : colors.surface,
+              borderWidth: 1,
+              borderColor: categoryFilter === "all" ? colors.primary : colors.border,
+            }}
+          >
+            <Text style={{ color: categoryFilter === "all" ? "#fff" : colors.text, fontSize: 12 }}>All</Text>
+          </Pressable>
+          {categorySuggestions.map((c) => {
+            const selected = categoryFilter === c;
+            return (
+              <Pressable
+                key={c}
+                onPress={() => setCategoryFilter(selected ? "all" : c)}
+                style={{
+                  paddingHorizontal: space.md,
+                  paddingVertical: space.sm,
+                  borderRadius: radius.pill,
+                  backgroundColor: selected ? colors.primary : colors.surface,
+                  borderWidth: 1,
+                  borderColor: selected ? colors.primary : colors.border,
+                }}
+              >
+                <Text style={{ color: selected ? "#fff" : colors.text, fontSize: 12 }}>{c}</Text>
+              </Pressable>
+            );
+          })}
+        </HStack>
+      </Stack>
+
       {upcoming.length > 0 ? (
         <Stack gap="sm">
           <Text variant="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
@@ -259,6 +302,21 @@ export default function IncomeTab() {
                         {i.source === "detected" ? " · auto-detected" : ""}
                         {isOnceReceived ? " · received" : ""}
                       </Text>
+                      {i.category ? (
+                        <View
+                          style={{
+                            alignSelf: "flex-start",
+                            paddingHorizontal: space.sm,
+                            paddingVertical: 2,
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            backgroundColor: colors.surface,
+                          }}
+                        >
+                          <Text variant="muted" style={{ fontSize: 11 }}>{i.category}</Text>
+                        </View>
+                      ) : null}
                     </Stack>
                     <Money cents={i.amount} positiveColor />
                   </HStack>
@@ -278,6 +336,7 @@ export default function IncomeTab() {
         income={editing}
         spaceId={activeSpaceId}
         ownerUserId={ownerUserId}
+        categorySuggestions={categorySuggestions}
         onClose={() => setSheetOpen(false)}
         onSaved={reload}
       />

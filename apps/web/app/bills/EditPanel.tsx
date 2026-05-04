@@ -9,20 +9,9 @@ import {
   upsertBill,
 } from "@cvc/api-client";
 import { displayMerchantName } from "@cvc/domain";
-import type { Cadence } from "@cvc/types";
+import type { Cadence, EditableBill } from "@cvc/types";
 
-export interface EditableBill {
-  id: string;
-  space_id: string;
-  owner_user_id: string;
-  name: string;
-  amount: number;
-  cadence: Cadence;
-  next_due_at: string;
-  autopay: boolean;
-  source: "detected" | "manual";
-  recurring_group_id: string | null;
-}
+export type { EditableBill };
 
 interface PaymentRow {
   id: string;
@@ -46,6 +35,7 @@ interface Props {
   open: boolean;
   spaceId: string | null;
   ownerUserId: string | null;
+  categorySuggestions: string[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -80,13 +70,23 @@ function fmtMoney(cents: number): string {
   return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
 }
 
-export function EditPanel({ client, bill, open, spaceId, ownerUserId, onClose, onSaved }: Props) {
+export function EditPanel({
+  client,
+  bill,
+  open,
+  spaceId,
+  ownerUserId,
+  categorySuggestions,
+  onClose,
+  onSaved,
+}: Props) {
   const isNew = !bill;
   const [name, setName] = useState("");
   const [amountStr, setAmountStr] = useState("");
   const [cadence, setCadence] = useState<Cadence>("monthly");
   const [nextDueAt, setNextDueAt] = useState("");
   const [autopay, setAutopay] = useState(false);
+  const [category, setCategory] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,12 +102,14 @@ export function EditPanel({ client, bill, open, spaceId, ownerUserId, onClose, o
       setCadence(bill.cadence);
       setNextDueAt(bill.next_due_at);
       setAutopay(bill.autopay);
+      setCategory(bill.category ?? "");
     } else {
       setName("");
       setAmountStr("");
       setCadence("monthly");
       setNextDueAt("");
       setAutopay(false);
+      setCategory("");
       setPayments([]);
       setMatched([]);
     }
@@ -159,6 +161,7 @@ export function EditPanel({ client, bill, open, spaceId, ownerUserId, onClose, o
         autopay,
         due_day: dayOfMonth(nextDueAt),
         source: bill?.source ?? "manual",
+        category: category.trim() || null,
       });
       onSaved();
       onClose();
@@ -231,6 +234,30 @@ export function EditPanel({ client, bill, open, spaceId, ownerUserId, onClose, o
             </button>
           ))}
         </div>
+
+        <label className="muted" style={{ ...labelStyle, marginTop: 16 }}>Category</label>
+        <input
+          type="text"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          placeholder="e.g. Bills & Utilities"
+          style={inputStyle}
+        />
+        {categorySuggestions.length ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            {categorySuggestions.slice(0, 12).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCategory(c)}
+                className={category === c ? "btn btn-primary" : "btn btn-secondary"}
+                style={{ padding: "4px 10px", fontSize: 12 }}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <label
           style={{

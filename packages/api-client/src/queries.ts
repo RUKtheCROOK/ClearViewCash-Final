@@ -29,16 +29,29 @@ export async function getAccountsForSpace(client: CvcSupabaseClient, spaceId: st
 /**
  * Resolve the set of accounts to render for the active view.
  *
- * - sharedView=false: every account the caller can see (RLS does ownership).
- * - sharedView=true and a space is active: only accounts shared into that
+ * - sharedView=true and a space is active: every account shared into that
  *   space with share_balances=true.
+ * - sharedView=false and a space is active and `restrictToOwnerId` is set:
+ *   only accounts shared into that space whose owner is `restrictToOwnerId`
+ *   ("My View" inside a multi-member space — the slice the caller contributed).
+ * - Otherwise: every account the caller can see (RLS does ownership).
  */
 export async function getAccountsForView(
   client: CvcSupabaseClient,
-  opts: { spaceId: string | null; sharedView: boolean },
+  opts: { spaceId: string | null; sharedView: boolean; restrictToOwnerId?: string | null },
 ) {
   if (opts.sharedView && opts.spaceId) {
     return getAccountsForSpace(client, opts.spaceId);
+  }
+  if (opts.spaceId && opts.restrictToOwnerId) {
+    const { data, error } = await client
+      .from("accounts")
+      .select("*, account_shares!inner(space_id, share_balances, share_transactions)")
+      .eq("account_shares.space_id", opts.spaceId)
+      .eq("account_shares.share_balances", true)
+      .eq("owner_user_id", opts.restrictToOwnerId);
+    if (error) throw error;
+    return data ?? [];
   }
   const { data, error } = await client.from("accounts").select("*");
   if (error) throw error;
@@ -68,12 +81,16 @@ export async function getTransactionsForSpace(
  * the space) and `transaction_shares.hidden` (per-txn opt-outs). RLS would
  * surface a transaction that is hidden in *this* space if it remains visible
  * via *another* space, so we filter explicitly here rather than relying on RLS.
+ *
+ * `restrictToOwnerId` narrows the result to accounts whose owner is that user,
+ * still scoped to the active space (used by "My View" in a multi-member space).
  */
 export async function getTransactionsForView(
   client: CvcSupabaseClient,
   opts: {
     spaceId: string | null;
     sharedView: boolean;
+    restrictToOwnerId?: string | null;
     limit?: number;
     since?: string;
     fields?: string;
@@ -122,6 +139,34 @@ export async function getTransactionsForView(
     return data ?? [];
   }
 
+  if (opts.spaceId && opts.restrictToOwnerId) {
+    const { data: shares } = await client
+      .from("account_shares")
+      .select("account_id, accounts!inner(owner_user_id)")
+      .eq("space_id", opts.spaceId)
+      .eq("share_transactions", true)
+      .eq("accounts.owner_user_id", opts.restrictToOwnerId);
+    let accountIds = (shares ?? []).map((s: { account_id: string }) => s.account_id);
+    if (opts.accountIds?.length) {
+      const allow = new Set(opts.accountIds);
+      accountIds = accountIds.filter((id) => allow.has(id));
+    }
+    if (accountIds.length === 0) return [];
+    let q = client
+      .from("transactions")
+      .select(fields)
+      .in("account_id", accountIds)
+      .eq("owner_user_id", opts.restrictToOwnerId)
+      .order("posted_at", { ascending: false })
+      .limit(limit);
+    if (opts.since) q = q.gte("posted_at", opts.since);
+    if (opts.categories?.length) q = q.in("category", opts.categories);
+    if (opts.ownerUserIds?.length) q = q.in("owner_user_id", opts.ownerUserIds);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data ?? [];
+  }
+
   let q = client
     .from("transactions")
     .select(fields)
@@ -162,7 +207,7 @@ export async function getInvitationsForSpace(client: CvcSupabaseClient, spaceId:
 export async function getMembersForSpace(client: CvcSupabaseClient, spaceId: string) {
   const { data, error } = await client
     .from("space_members")
-    .select("user_id, role, invited_email, accepted_at, created_at")
+    .select("user_id, role, invited_email, accepted_at, created_at, can_invite, can_rename, can_delete")
     .eq("space_id", spaceId)
     .order("created_at", { ascending: true });
   if (error) throw error;
@@ -223,7 +268,9 @@ export async function getShareVisibility(
 export async function getAccount(client: CvcSupabaseClient, accountId: string) {
   const { data, error } = await client
     .from("accounts")
-    .select("id, name, mask, type, current_balance, owner_user_id, plaid_item_id")
+    .select(
+      "id, name, display_name, mask, type, current_balance, owner_user_id, plaid_item_id, color",
+    )
     .eq("id", accountId)
     .maybeSingle();
   if (error) throw error;
@@ -233,7 +280,7 @@ export async function getAccount(client: CvcSupabaseClient, accountId: string) {
 export async function getAccountsForPlaidItem(client: CvcSupabaseClient, plaidItemRowId: string) {
   const { data, error } = await client
     .from("accounts")
-    .select("id, name, mask, type, current_balance, plaid_item_id")
+    .select("id, name, display_name, mask, type, current_balance, plaid_item_id, color")
     .eq("plaid_item_id", plaidItemRowId)
     .order("name", { ascending: true });
   if (error) throw error;
@@ -391,6 +438,59 @@ export async function getGoals(client: CvcSupabaseClient, spaceId: string) {
   return data ?? [];
 }
 
+export async function getGoalsSharedToSpace(client: CvcSupabaseClient, spaceId: string) {
+  // Two-step fetch instead of `goal_shares!inner(space_id)` — the embedded
+  // inner-join filter interacts oddly with RLS on the joined table and can
+  // silently drop rows. Fetching the share rows first and then the goals by
+  // id is straightforward and predictable.
+  const { data: shares, error: shErr } = await client
+    .from("goal_shares")
+    .select("goal_id")
+    .eq("space_id", spaceId);
+  if (shErr) throw shErr;
+  const ids = (shares ?? []).map((row) => row.goal_id);
+  if (ids.length === 0) return [];
+  const { data, error } = await client.from("goals").select("*").in("id", ids);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Resolve goals to render for the active space.
+ *
+ * - includeShared=false (default): only goals whose home is the active space.
+ * - includeShared=true: those plus every goal shared INTO this space via
+ *   goal_shares. The two sets are de-duplicated by id.
+ *
+ * Goals shared into the space are read-only from this view — they're owned
+ * by their home space and only mutable by that space's permitted members.
+ */
+export async function getGoalsForView(
+  client: CvcSupabaseClient,
+  opts: { spaceId: string | null; includeShared: boolean },
+) {
+  if (!opts.spaceId) return [];
+  const own = await getGoals(client, opts.spaceId);
+  if (!opts.includeShared) return own;
+  const sharedIn = await getGoalsSharedToSpace(client, opts.spaceId);
+  const map = new Map<string, (typeof own)[number]>();
+  for (const g of own) map.set(g.id, g);
+  for (const g of sharedIn) if (!map.has(g.id)) map.set(g.id, g as (typeof own)[number]);
+  return Array.from(map.values());
+}
+
+export async function getSharesForGoal(
+  client: CvcSupabaseClient,
+  goalId: string,
+): Promise<string[]> {
+  const { data, error } = await client
+    .from("goal_shares")
+    .select("space_id")
+    .eq("goal_id", goalId);
+  if (error) throw error;
+  return (data ?? []).map((row) => row.space_id);
+}
+
 /**
  * Returns the accounts and dated transactions used by the Net-Worth-Over-Time
  * report. The report walks each account's stored `current_balance` backward
@@ -399,11 +499,17 @@ export async function getGoals(client: CvcSupabaseClient, spaceId: string) {
  */
 export async function getAccountBalanceHistory(
   client: CvcSupabaseClient,
-  opts: { spaceId: string | null; sharedView: boolean; since: string },
+  opts: {
+    spaceId: string | null;
+    sharedView: boolean;
+    since: string;
+    restrictToOwnerId?: string | null;
+  },
 ) {
   const accounts = await getAccountsForView(client, {
     spaceId: opts.spaceId,
     sharedView: opts.sharedView,
+    restrictToOwnerId: opts.restrictToOwnerId,
   });
   const accountIds = (accounts as Array<{ id: string }>).map((a) => a.id);
   if (accountIds.length === 0) {
@@ -415,6 +521,7 @@ export async function getAccountBalanceHistory(
   const txns = (await getTransactionsForView(client, {
     spaceId: opts.spaceId,
     sharedView: opts.sharedView,
+    restrictToOwnerId: opts.restrictToOwnerId,
     since: opts.since,
     fields: "posted_at, amount, account_id",
     accountIds,

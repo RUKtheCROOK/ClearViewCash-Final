@@ -7,13 +7,18 @@ import { supabase } from "../../lib/supabase";
 export default function SignUp() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [spaceName, setSpaceName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit() {
     setLoading(true);
     setError(null);
-    const { error: err } = await supabase.auth.signUp({ email, password });
+    const { error: err } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { space_name: spaceName.trim() } },
+    });
     setLoading(false);
     if (err) setError(err.message);
     else router.replace("/(onboarding)/verify");
@@ -24,7 +29,7 @@ export default function SignUp() {
       <Card>
         <Stack gap="lg">
           <Text variant="h1">Create your account</Text>
-          <Text variant="muted">A personal space is created automatically. Add a partner later from Settings.</Text>
+          <Text variant="muted">We&apos;ll create a space for you. You can rename it any time.</Text>
           <TextInput
             placeholder="Email"
             autoCapitalize="none"
@@ -38,6 +43,13 @@ export default function SignUp() {
             secureTextEntry
             value={password}
             onChangeText={setPassword}
+            style={inputStyle}
+          />
+          <TextInput
+            placeholder="Space name (optional)"
+            value={spaceName}
+            onChangeText={setSpaceName}
+            maxLength={64}
             style={inputStyle}
           />
           {error ? <Text style={{ color: colors.negative }}>{error}</Text> : null}
