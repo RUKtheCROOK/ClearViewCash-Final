@@ -1,20 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { Card, HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import Svg, { Path } from "react-native-svg";
+import { fonts } from "@cvc/ui";
 import {
+  getAccountsForView,
   getBillsWithLatestPayment,
   getTransactionsForView,
   recordBillPayment,
 } from "@cvc/api-client";
-import { CVC_CATEGORIES, computeBillStatus, todayIso, type BillCycleStatus } from "@cvc/domain";
+import {
+  groupBillsByBucket,
+  summariseUpcoming,
+  todayIso,
+  type BillBucket,
+} from "@cvc/domain";
 import type { BillListRow as BillRow } from "@cvc/types";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
+import { useTheme } from "../../lib/theme";
 import { useEffectiveSharedView } from "../../lib/view";
 import { useSpaces } from "../../hooks/useSpaces";
 import { BillEditSheet, type EditableBill } from "../../components/BillEditSheet";
+import { BillDetailSheet } from "../../components/BillDetailSheet";
 import { RecurringSuggestionsBanner } from "../../components/RecurringSuggestionsBanner";
-import { BillsCalendar } from "../../components/BillsCalendar";
+import { BillsCalendar, type CalendarBill } from "../../components/BillsCalendar";
+import { BillRow as BillRowView, type BillRowDataMobile } from "../../components/bills/BillRow";
+import { GroupHeader } from "../../components/bills/GroupHeader";
+import { UpcomingStrip } from "../../components/bills/UpcomingStrip";
+import { ViewToggle, type BillsViewMode } from "../../components/bills/ViewToggle";
+import { Num, fmtMoneyDollars } from "../../components/bills/Num";
 
 interface MinimalTxn {
   id: string;
@@ -23,122 +37,131 @@ interface MinimalTxn {
   posted_at: string;
   pending: boolean;
   is_recurring: boolean;
+  account_id: string | null;
 }
 
-const STATUS_LABEL: Record<BillCycleStatus, string> = {
-  overdue: "Overdue",
-  due_soon: "Due soon",
-  upcoming: "Upcoming",
-};
-
-const STATUS_COLOR: Record<BillCycleStatus, string> = {
-  overdue: colors.negative,
-  due_soon: colors.warning,
-  upcoming: colors.positive,
-};
-
-type StatusFilter = "all" | BillCycleStatus;
-type CadenceFilter = "all" | "recurring" | "one_time";
-type AutopayFilter = "all" | "autopay" | "manual";
-type CategoryFilter = "all" | string;
-type ViewMode = "list" | "calendar";
-
-interface PillProps {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
+interface AccountLite {
+  id: string;
+  name: string;
+  display_name: string | null;
+  mask: string | null;
 }
 
-function Pill({ label, selected, onPress }: PillProps) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        paddingHorizontal: space.md,
-        paddingVertical: space.sm,
-        borderRadius: radius.pill,
-        backgroundColor: selected ? colors.primary : colors.surface,
-        borderWidth: 1,
-        borderColor: selected ? colors.primary : colors.border,
-      }}
-    >
-      <Text style={{ color: selected ? "#fff" : colors.text, fontSize: 12 }}>{label}</Text>
-    </Pressable>
-  );
+const BUCKET_ORDER: BillBucket[] = ["overdue", "this_week", "later", "paid"];
+
+function bucketColor(palette: ReturnType<typeof useTheme>["palette"], b: BillBucket): string {
+  switch (b) {
+    case "overdue": return palette.warn;
+    case "this_week": return palette.brand;
+    case "later": return palette.ink3;
+    case "paid": return palette.pos;
+  }
 }
 
-export default function Bills() {
+function bucketLabel(b: BillBucket): string {
+  switch (b) {
+    case "overdue": return "Overdue";
+    case "this_week": return "Due this week";
+    case "later": return "Due later this month";
+    case "paid": return "Paid recently";
+  }
+}
+
+function accountLabel(accounts: AccountLite[], id: string | null): string | null {
+  if (!id) return null;
+  const a = accounts.find((x) => x.id === id);
+  if (!a) return null;
+  const name = a.display_name ?? a.name;
+  const short = name.split(/\s+/).slice(0, 2).join(" ");
+  return a.mask ? `${short} ··${a.mask}` : short;
+}
+
+export default function BillsScreen() {
+  const today = todayIso();
+  const { palette, mode } = useTheme();
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const { activeSpace } = useSpaces();
-  const { sharedView, restrictToOwnerId } = useEffectiveSharedView(activeSpace);
+  const { sharedView } = useEffectiveSharedView(activeSpace);
+
   const [bills, setBills] = useState<BillRow[]>([]);
+  const [accounts, setAccounts] = useState<AccountLite[]>([]);
   const [outflowTxns, setOutflowTxns] = useState<MinimalTxn[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<EditableBill | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
   const [ownerUserId, setOwnerUserId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [cadenceFilter, setCadenceFilter] = useState<CadenceFilter>("all");
-  const [autopayFilter, setAutopayFilter] = useState<AutopayFilter>("all");
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [viewMode, setViewMode] = useState<BillsViewMode>("list");
   const [calendarSelectedIso, setCalendarSelectedIso] = useState<string | null>(null);
-  const today = todayIso();
+  const [reloadCount, setReloadCount] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  // Sheet state: detail vs add/edit
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<EditableBill | null>(null);
+  const [editVisible, setEditVisible] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setOwnerUserId(data.session?.user?.id ?? null);
+    });
+  }, []);
 
   const reload = useCallback(() => {
     if (!activeSpaceId) return;
-    getBillsWithLatestPayment(supabase, activeSpaceId).then((rows) => setBills(rows as never));
+    getBillsWithLatestPayment(supabase, activeSpaceId).then((rows) => setBills(rows as unknown as BillRow[]));
+    getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView: false }).then((rows) => {
+      setAccounts(
+        (rows as Array<{ id: string; name: string; display_name: string | null; mask: string | null }>).map((a) => ({
+          id: a.id, name: a.name, display_name: a.display_name, mask: a.mask,
+        })),
+      );
+    });
     getTransactionsForView(supabase, {
       spaceId: activeSpaceId,
-      sharedView,
-      restrictToOwnerId,
+      sharedView: false,
       limit: 200,
-      fields: "id, merchant_name, amount, posted_at, pending, is_recurring",
+      fields: "id, merchant_name, amount, posted_at, pending, is_recurring, account_id",
     }).then((rows) => {
       const minimal = (rows as unknown as MinimalTxn[]).filter((t) => t.amount < 0);
       setOutflowTxns(minimal);
     });
-  }, [activeSpaceId, sharedView, restrictToOwnerId]);
+  }, [activeSpaceId]);
 
   useEffect(() => {
     reload();
-  }, [reload]);
+  }, [reload, reloadCount]);
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setOwnerUserId(data.user?.id ?? null));
-  }, []);
+  const summary = useMemo(() => summariseUpcoming(bills, today), [bills, today]);
+  const buckets = useMemo(() => groupBillsByBucket(bills, today), [bills, today]);
 
-  const categorySuggestions = useMemo(() => {
-    const set = new Set<string>(CVC_CATEGORIES);
-    for (const b of bills) if (b.category) set.add(b.category);
-    return Array.from(set).sort();
-  }, [bills]);
+  const calendarBills: CalendarBill[] = useMemo(
+    () =>
+      bills.map((b) => ({
+        id: b.id,
+        next_due_at: b.next_due_at,
+        amount: b.amount,
+        autopay: b.autopay,
+        isOverdue: b.next_due_at < today && !b.latest_payment,
+      })),
+    [bills, today],
+  );
 
-  const filtered = useMemo(() => {
-    return bills.filter((b) => {
-      const status = computeBillStatus(b.next_due_at, today);
-      if (statusFilter !== "all" && status !== statusFilter) return false;
-      if (cadenceFilter === "recurring" && b.cadence === "custom") return false;
-      if (cadenceFilter === "one_time" && b.cadence !== "custom") return false;
-      if (autopayFilter === "autopay" && !b.autopay) return false;
-      if (autopayFilter === "manual" && b.autopay) return false;
-      if (categoryFilter !== "all" && (b.category ?? "") !== categoryFilter) return false;
-      if (viewMode === "calendar" && calendarSelectedIso && b.next_due_at !== calendarSelectedIso) {
-        return false;
-      }
-      return true;
-    });
-  }, [
-    bills,
-    statusFilter,
-    cadenceFilter,
-    autopayFilter,
-    categoryFilter,
-    viewMode,
-    calendarSelectedIso,
-    today,
-  ]);
+  function billToRowData(b: BillRow): BillRowDataMobile {
+    return {
+      id: b.id,
+      name: b.name,
+      amount: b.amount,
+      next_due_at: b.next_due_at,
+      cadence: b.cadence,
+      autopay: b.autopay,
+      category: b.category,
+      payee_hue: (b as unknown as { payee_hue?: number | null }).payee_hue ?? null,
+      payee_glyph: (b as unknown as { payee_glyph?: string | null }).payee_glyph ?? null,
+      source: b.source,
+      recurring_group_id: b.recurring_group_id,
+      latest_payment: b.latest_payment ? { paid_at: b.latest_payment.paid_at, amount: b.latest_payment.amount } : null,
+    };
+  }
 
   async function markPaid(b: BillRow) {
     setBusy(b.id);
@@ -151,7 +174,7 @@ export default function Bills() {
         cadence: b.cadence,
         current_next_due_at: b.next_due_at,
       });
-      reload();
+      setReloadCount((c) => c + 1);
     } catch (e) {
       setError((e as Error).message ?? "Could not mark paid.");
     } finally {
@@ -161,7 +184,11 @@ export default function Bills() {
 
   function openCreate() {
     setEditing(null);
-    setSheetOpen(true);
+    setEditVisible(true);
+  }
+
+  function openDetail(billId: string) {
+    setDetailId(billId);
   }
 
   function openEdit(b: BillRow) {
@@ -177,175 +204,354 @@ export default function Bills() {
       source: b.source,
       recurring_group_id: b.recurring_group_id,
       category: b.category,
+      payee_hue: (b as unknown as { payee_hue?: number | null }).payee_hue ?? null,
+      payee_glyph: (b as unknown as { payee_glyph?: string | null }).payee_glyph ?? null,
+      notes: (b as unknown as { notes?: string | null }).notes ?? null,
+      linked_account_id: (b as unknown as { linked_account_id?: string | null }).linked_account_id ?? null,
     });
-    setSheetOpen(true);
+    setEditVisible(true);
+    setDetailId(null);
   }
 
+  const dayBills = viewMode === "calendar" && calendarSelectedIso
+    ? bills.filter((b) => b.next_due_at === calendarSelectedIso)
+    : [];
+
+  const searchHits = search.trim()
+    ? bills.filter((b) => b.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : null;
+
   return (
-    <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
-      <HStack justify="space-between" align="center">
-        <Text variant="h2">Bills</Text>
-        <Pressable
-          onPress={openCreate}
-          style={{
-            paddingHorizontal: space.md,
-            paddingVertical: space.sm,
-            borderRadius: radius.md,
-            backgroundColor: colors.primary,
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>+ Add</Text>
-        </Pressable>
-      </HStack>
-      <Text variant="muted">
-        Recurring obligations are auto-detected from your transactions. Manual bills are also welcome.
-      </Text>
-
-      <RecurringSuggestionsBanner
-        txns={outflowTxns}
-        spaceId={activeSpaceId}
-        onPromoted={reload}
-      />
-
-      <HStack gap="sm">
-        <Pill label="List" selected={viewMode === "list"} onPress={() => setViewMode("list")} />
-        <Pill label="Calendar" selected={viewMode === "calendar"} onPress={() => setViewMode("calendar")} />
-      </HStack>
-
-      {viewMode === "calendar" ? (
-        <BillsCalendar
-          bills={bills.map((b) => ({ id: b.id, next_due_at: b.next_due_at }))}
-          todayIso={today}
-          selectedIso={calendarSelectedIso}
-          onSelectDay={setCalendarSelectedIso}
-        />
-      ) : null}
-
-      <Stack gap="sm">
-        <Text variant="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Status
-        </Text>
-        <HStack gap="sm" style={{ flexWrap: "wrap" }}>
-          <Pill label="All" selected={statusFilter === "all"} onPress={() => setStatusFilter("all")} />
-          <Pill label="Overdue" selected={statusFilter === "overdue"} onPress={() => setStatusFilter("overdue")} />
-          <Pill label="Due soon" selected={statusFilter === "due_soon"} onPress={() => setStatusFilter("due_soon")} />
-          <Pill label="Upcoming" selected={statusFilter === "upcoming"} onPress={() => setStatusFilter("upcoming")} />
-        </HStack>
-        <HStack gap="sm" style={{ flexWrap: "wrap" }}>
-          <Pill label="All cadences" selected={cadenceFilter === "all"} onPress={() => setCadenceFilter("all")} />
-          <Pill label="Recurring" selected={cadenceFilter === "recurring"} onPress={() => setCadenceFilter("recurring")} />
-          <Pill label="One-time" selected={cadenceFilter === "one_time"} onPress={() => setCadenceFilter("one_time")} />
-          <Pill label="Autopay" selected={autopayFilter === "autopay"} onPress={() => setAutopayFilter(autopayFilter === "autopay" ? "all" : "autopay")} />
-          <Pill label="Manual" selected={autopayFilter === "manual"} onPress={() => setAutopayFilter(autopayFilter === "manual" ? "all" : "manual")} />
-        </HStack>
-        <Text variant="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Category
-        </Text>
-        <HStack gap="sm" style={{ flexWrap: "wrap" }}>
-          <Pill label="All" selected={categoryFilter === "all"} onPress={() => setCategoryFilter("all")} />
-          {categorySuggestions.map((c) => (
-            <Pill
-              key={c}
-              label={c}
-              selected={categoryFilter === c}
-              onPress={() => setCategoryFilter(categoryFilter === c ? "all" : c)}
-            />
-          ))}
-        </HStack>
-      </Stack>
-
-      {error ? <Text style={{ color: colors.negative }}>{error}</Text> : null}
-      {filtered.map((b) => {
-        const status = computeBillStatus(b.next_due_at, today);
-        const isPaying = busy === b.id;
-        return (
-          <Pressable key={b.id} onPress={() => openEdit(b)}>
-            <Card>
-              <Stack gap="sm">
-                <HStack justify="space-between" align="center">
-                  <Stack gap="xs" style={{ flex: 1, marginRight: space.md }}>
-                    <Text variant="title">{b.name}</Text>
-                    <Text variant="muted">
-                      Due {b.next_due_at} · {b.cadence}
-                      {b.autopay ? " · autopay" : ""}
-                      {b.source === "detected" ? " · auto-detected" : ""}
-                    </Text>
-                    {b.category ? (
-                      <View
-                        style={{
-                          alignSelf: "flex-start",
-                          paddingHorizontal: space.sm,
-                          paddingVertical: 2,
-                          borderRadius: radius.pill,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          backgroundColor: colors.surface,
-                        }}
-                      >
-                        <Text variant="muted" style={{ fontSize: 11 }}>{b.category}</Text>
-                      </View>
-                    ) : null}
-                    {b.latest_payment ? (
-                      <Text variant="muted" style={{ fontSize: 12 }}>
-                        Last paid {b.latest_payment.paid_at}
-                      </Text>
-                    ) : null}
-                  </Stack>
-                  <Money cents={b.amount} />
-                </HStack>
-                <HStack justify="space-between" align="center">
-                  <View
-                    style={{
-                      paddingHorizontal: space.sm,
-                      paddingVertical: 4,
-                      borderRadius: radius.pill,
-                      backgroundColor: STATUS_COLOR[status],
-                    }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>
-                      {STATUS_LABEL[status]}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      markPaid(b);
-                    }}
-                    disabled={isPaying}
-                    style={{
-                      paddingHorizontal: space.md,
-                      paddingVertical: space.sm,
-                      borderRadius: radius.md,
-                      backgroundColor: isPaying ? colors.textMuted : colors.primary,
-                    }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-                      {isPaying ? "Saving…" : "Mark paid"}
-                    </Text>
-                  </Pressable>
-                </HStack>
-              </Stack>
-            </Card>
+    <View style={{ flex: 1, backgroundColor: palette.canvas }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
+        {/* Header */}
+        <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 28, fontWeight: "500", letterSpacing: -0.6, color: palette.ink1 }}>
+              Bills
+            </Text>
+          </View>
+          <Pressable
+            onPress={openCreate}
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 999,
+              backgroundColor: palette.brand,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Svg width={18} height={18} viewBox="0 0 24 24"><Path d="M12 5v14M5 12h14" fill="none" stroke={palette.brandOn} strokeWidth={2.2} strokeLinecap="round" /></Svg>
           </Pressable>
-        );
-      })}
-      {filtered.length === 0 ? (
-        <Text variant="muted">
-          {bills.length === 0
-            ? "No bills yet. Tap + Add to create one or let us detect them from transactions."
-            : "No bills match the current filters."}
-        </Text>
-      ) : null}
+        </View>
+
+        {/* View toggle + search */}
+        <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 14, flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <ViewToggle value={viewMode} onChange={setViewMode} palette={palette} />
+          <View style={{ flex: 1 }} />
+          <Pressable
+            onPress={() => setSearchOpen((s) => !s)}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 999,
+              backgroundColor: searchOpen ? palette.brandTint : palette.tinted,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Svg width={14} height={14} viewBox="0 0 24 24">
+              <Path d="M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-4.3-4.3" fill="none" stroke={searchOpen ? palette.brand : palette.ink2} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </Pressable>
+        </View>
+
+        {searchOpen ? (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
+            <TextInput
+              autoFocus
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search bills by name…"
+              placeholderTextColor={palette.ink3}
+              style={{
+                paddingHorizontal: 14,
+                height: 44,
+                borderRadius: 12,
+                backgroundColor: palette.surface,
+                borderWidth: 1,
+                borderColor: palette.lineFirm,
+                fontFamily: fonts.ui,
+                fontSize: 14,
+                color: palette.ink1,
+              }}
+            />
+          </View>
+        ) : null}
+
+        {/* Upcoming summary */}
+        <UpcomingStrip summary={summary} palette={palette} />
+
+        {/* Recurring detection */}
+        {viewMode === "list" && !searchHits ? (
+          <RecurringSuggestionsBanner
+            txns={outflowTxns}
+            accounts={accounts}
+            spaceId={activeSpaceId}
+            ownerUserId={ownerUserId}
+            limit={1}
+            onPromoted={() => setReloadCount((c) => c + 1)}
+          />
+        ) : null}
+
+        {error ? (
+          <Text style={{ color: palette.neg, paddingHorizontal: 16, paddingBottom: 8, fontSize: 12 }}>{error}</Text>
+        ) : null}
+
+        {/* Calendar mode */}
+        {viewMode === "calendar" ? (
+          <>
+            <BillsCalendar
+              bills={calendarBills}
+              todayIso={today}
+              selectedIso={calendarSelectedIso}
+              onSelectDay={setCalendarSelectedIso}
+              palette={palette}
+            />
+            {calendarSelectedIso ? (
+              <DayPanel
+                iso={calendarSelectedIso}
+                bills={dayBills}
+                accounts={accounts}
+                today={today}
+                palette={palette}
+                mode={mode}
+                onPress={openDetail}
+                onMarkPaid={markPaid}
+                busy={busy}
+                billToRowData={billToRowData}
+              />
+            ) : (
+              <Text style={{ paddingHorizontal: 18, paddingTop: 16, color: palette.ink3, fontSize: 12.5 }}>
+                Pick a day to see what&apos;s due.
+              </Text>
+            )}
+          </>
+        ) : null}
+
+        {/* List mode */}
+        {viewMode === "list" ? (
+          searchHits ? (
+            <Section
+              header={`Search · ${searchHits.length} ${searchHits.length === 1 ? "match" : "matches"}`}
+              count={searchHits.length}
+              total={searchHits.reduce((s, b) => s + b.amount, 0)}
+              color={palette.ink3}
+              palette={palette}
+            >
+              {searchHits.length === 0 ? (
+                <Text style={{ padding: 24, color: palette.ink3, fontSize: 13 }}>No bills match “{search}”.</Text>
+              ) : (
+                searchHits.map((b) => {
+                  const bucket = buckets.overdue.includes(b)
+                    ? ("overdue" as const)
+                    : buckets.this_week.includes(b)
+                      ? ("this_week" as const)
+                      : buckets.paid.includes(b)
+                        ? ("paid" as const)
+                        : ("later" as const);
+                  return (
+                    <BillRowView
+                      key={b.id}
+                      bill={billToRowData(b)}
+                      bucket={bucket}
+                      todayIso={today}
+                      accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
+                      palette={palette}
+                      mode={mode}
+                      onPress={() => openDetail(b.id)}
+                      onMarkPaid={() => markPaid(b)}
+                      paying={busy === b.id}
+                    />
+                  );
+                })
+              )}
+            </Section>
+          ) : bills.length === 0 ? (
+            <View
+              style={{
+                marginHorizontal: 16,
+                padding: 24,
+                borderRadius: 14,
+                backgroundColor: palette.surface,
+                borderWidth: 1,
+                borderColor: palette.line,
+              }}
+            >
+              <Text style={{ color: palette.ink2, fontSize: 14, fontFamily: fonts.ui, textAlign: "center" }}>
+                No bills yet. Tap + to add one, or wait for us to detect repeat charges.
+              </Text>
+            </View>
+          ) : (
+            BUCKET_ORDER.map((bucket) => {
+              const items = buckets[bucket];
+              if (items.length === 0) return null;
+              return (
+                <Section
+                  key={bucket}
+                  header={bucketLabel(bucket)}
+                  count={items.length}
+                  total={items.reduce((s, b) => s + b.amount, 0)}
+                  color={bucketColor(palette, bucket)}
+                  palette={palette}
+                >
+                  {items.map((b) => (
+                    <BillRowView
+                      key={b.id}
+                      bill={billToRowData(b)}
+                      bucket={bucket}
+                      todayIso={today}
+                      accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
+                      palette={palette}
+                      mode={mode}
+                      onPress={() => openDetail(b.id)}
+                      onMarkPaid={bucket === "paid" ? undefined : () => markPaid(b)}
+                      paying={busy === b.id}
+                    />
+                  ))}
+                </Section>
+              );
+            })
+          )
+        ) : null}
+      </ScrollView>
+
+      <BillDetailSheet
+        visible={!!detailId}
+        billId={detailId}
+        onClose={() => setDetailId(null)}
+        onChanged={() => setReloadCount((c) => c + 1)}
+        onEdit={() => {
+          const b = bills.find((x) => x.id === detailId);
+          if (b) openEdit(b);
+        }}
+      />
 
       <BillEditSheet
-        visible={sheetOpen}
+        visible={editVisible}
         bill={editing}
-        spaceId={activeSpaceId}
+        spaceId={activeSpaceId ?? null}
         ownerUserId={ownerUserId}
-        categorySuggestions={categorySuggestions}
-        onClose={() => setSheetOpen(false)}
-        onSaved={reload}
+        onClose={() => setEditVisible(false)}
+        onSaved={() => {
+          setReloadCount((c) => c + 1);
+          setEditVisible(false);
+        }}
       />
-    </ScrollView>
+    </View>
+  );
+}
+
+function Section({
+  header,
+  count,
+  total,
+  color,
+  palette,
+  children,
+}: {
+  header: string;
+  count: number;
+  total: number;
+  color: string;
+  palette: ReturnType<typeof useTheme>["palette"];
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <GroupHeader label={header} count={count} totalCents={total} color={color} palette={palette} />
+      <View
+        style={{
+          backgroundColor: palette.surface,
+          borderTopWidth: 1,
+          borderTopColor: palette.line,
+          borderBottomWidth: 1,
+          borderBottomColor: palette.line,
+        }}
+      >
+        {children}
+      </View>
+    </>
+  );
+}
+
+function DayPanel({
+  iso,
+  bills,
+  accounts,
+  today,
+  palette,
+  mode,
+  onPress,
+  onMarkPaid,
+  busy,
+  billToRowData,
+}: {
+  iso: string;
+  bills: BillRow[];
+  accounts: AccountLite[];
+  today: string;
+  palette: ReturnType<typeof useTheme>["palette"];
+  mode: "light" | "dark";
+  onPress: (id: string) => void;
+  onMarkPaid: (b: BillRow) => void;
+  busy: string | null;
+  billToRowData: (b: BillRow) => BillRowDataMobile;
+}) {
+  const total = bills.reduce((s, b) => s + b.amount, 0);
+  const date = new Date(`${iso}T00:00:00`);
+  const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const label = `${weekdays[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+  return (
+    <View style={{ marginTop: 14 }}>
+      <View style={{ paddingHorizontal: 18, paddingTop: 4, paddingBottom: 8, flexDirection: "row", alignItems: "baseline", gap: 8 }}>
+        <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "600", color: palette.ink1 }}>{label}</Text>
+        <Text style={{ fontFamily: fonts.num, fontSize: 11, color: palette.ink3 }}>
+          {bills.length} {bills.length === 1 ? "bill" : "bills"}
+        </Text>
+        <View style={{ flex: 1 }} />
+        <Num style={{ fontSize: 12, color: palette.ink2 }}>{fmtMoneyDollars(total)}</Num>
+      </View>
+      <View
+        style={{
+          backgroundColor: palette.surface,
+          borderTopWidth: 1,
+          borderTopColor: palette.line,
+          borderBottomWidth: 1,
+          borderBottomColor: palette.line,
+        }}
+      >
+        {bills.length === 0 ? (
+          <Text style={{ padding: 18, color: palette.ink3, fontSize: 13, fontFamily: fonts.ui }}>Nothing due that day.</Text>
+        ) : (
+          bills.map((b) => (
+            <BillRowView
+              key={b.id}
+              bill={billToRowData(b)}
+              bucket={b.next_due_at < today ? "overdue" : "this_week"}
+              todayIso={today}
+              accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
+              palette={palette}
+              mode={mode}
+              onPress={() => onPress(b.id)}
+              onMarkPaid={() => onMarkPaid(b)}
+              paying={busy === b.id}
+            />
+          ))
+        )}
+      </View>
+    </View>
   );
 }

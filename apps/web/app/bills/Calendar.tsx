@@ -1,10 +1,13 @@
 "use client";
-import { useMemo, useState } from "react";
-import { computeBillStatus, type BillCycleStatus } from "@cvc/domain";
 
-interface CalendarBill {
+import { useMemo, useState } from "react";
+
+export interface CalendarBill {
   id: string;
   next_due_at: string;
+  amount: number;
+  autopay: boolean;
+  isOverdue: boolean;
 }
 
 interface Props {
@@ -14,144 +17,238 @@ interface Props {
   onSelectDay: (iso: string | null) => void;
 }
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
-const STATUS_RANK: Record<BillCycleStatus, number> = {
-  overdue: 3,
-  due_soon: 2,
-  upcoming: 1,
-};
-
-const STATUS_COLOR: Record<BillCycleStatus, string> = {
-  overdue: "var(--negative, #DC2626)",
-  due_soon: "var(--warning, #F59E0B)",
-  upcoming: "var(--positive, #16A34A)",
-};
-
-function pad2(n: number): string {
+function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-function isoForCell(year: number, month: number, day: number): string {
-  return `${year}-${pad2(month + 1)}-${pad2(day)}`;
+function isoFor(year: number, month0: number, day: number): string {
+  return `${year}-${pad(month0 + 1)}-${pad(day)}`;
+}
+
+interface DayInfo {
+  dotColor: string | null;
+  count: number;
+}
+
+function dotForDay(bills: CalendarBill[]): DayInfo {
+  if (bills.length === 0) return { dotColor: null, count: 0 };
+  const hasOverdue = bills.some((b) => b.isOverdue);
+  const hasManual = bills.some((b) => !b.autopay && !b.isOverdue);
+  let dotColor = "var(--brand)";
+  if (hasOverdue) dotColor = "var(--warn)";
+  else if (hasManual) dotColor = "var(--ink-1)";
+  return { dotColor, count: bills.length };
 }
 
 export function Calendar({ bills, todayIso, selectedIso, onSelectDay }: Props) {
-  const [year, setYear] = useState<number>(() => Number(todayIso.slice(0, 4)));
-  const [month, setMonth] = useState<number>(() => Number(todayIso.slice(5, 7)) - 1);
+  const [view, setView] = useState(() => {
+    const today = new Date(`${todayIso}T00:00:00`);
+    return { year: today.getFullYear(), month0: today.getMonth() };
+  });
 
   const billsByDay = useMemo(() => {
     const map = new Map<string, CalendarBill[]>();
     for (const b of bills) {
-      const list = map.get(b.next_due_at) ?? [];
-      list.push(b);
-      map.set(b.next_due_at, list);
+      const arr = map.get(b.next_due_at) ?? [];
+      arr.push(b);
+      map.set(b.next_due_at, arr);
     }
     return map;
   }, [bills]);
 
-  const startDow = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells: Array<{ iso: string; day: number; inMonth: boolean }> = [];
-  for (let i = 0; i < startDow; i++) cells.push({ iso: "", day: 0, inMonth: false });
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push({ iso: isoForCell(year, month, d), day: d, inMonth: true });
-  }
-  while (cells.length % 7 !== 0) cells.push({ iso: "", day: 0, inMonth: false });
+  const monthStartOffset = new Date(view.year, view.month0, 1).getDay();
+  const daysInMonth = new Date(view.year, view.month0 + 1, 0).getDate();
+  const cells: Array<number | null> = [];
+  for (let i = 0; i < monthStartOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
 
-  function step(delta: number) {
-    let nextMonth = month + delta;
-    let nextYear = year;
-    while (nextMonth < 0) {
-      nextMonth += 12;
-      nextYear -= 1;
-    }
-    while (nextMonth > 11) {
-      nextMonth -= 12;
-      nextYear += 1;
-    }
-    setMonth(nextMonth);
-    setYear(nextYear);
-    onSelectDay(null);
+  function shift(delta: number) {
+    setView((v) => {
+      let m0 = v.month0 + delta;
+      let y = v.year;
+      while (m0 < 0) { m0 += 12; y -= 1; }
+      while (m0 > 11) { m0 -= 12; y += 1; }
+      return { year: y, month0: m0 };
+    });
   }
-
-  const monthLabel = new Date(year, month, 1).toLocaleString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
 
   return (
-    <div className="card" style={{ padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <button className="btn btn-secondary" style={{ padding: "6px 12px" }} onClick={() => step(-1)}>
-          ‹
+    <div
+      style={{
+        margin: "0 16px",
+        padding: 14,
+        borderRadius: 16,
+        background: "var(--bg-surface)",
+        border: "1px solid var(--line-soft)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <button type="button" onClick={() => shift(-1)} style={navBtn} aria-label="Previous month">
+          <ChevLeft />
         </button>
-        <strong>{monthLabel}</strong>
-        <button className="btn btn-secondary" style={{ padding: "6px 12px" }} onClick={() => step(1)}>
-          ›
+        <div style={{ flex: 1, textAlign: "center" }}>
+          <div style={{ fontFamily: "var(--font-ui)", fontSize: 16, fontWeight: 500, color: "var(--ink-1)" }}>
+            {MONTHS[view.month0]} {view.year}
+          </div>
+        </div>
+        <button type="button" onClick={() => shift(1)} style={navBtn} aria-label="Next month">
+          <ChevRight />
         </button>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
-        {WEEKDAYS.map((d) => (
-          <div key={d} className="muted" style={{ fontSize: 11, textAlign: "center", textTransform: "uppercase" }}>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 }}>
+        {DOW.map((d, i) => (
+          <div
+            key={i}
+            style={{ textAlign: "center", fontFamily: "var(--font-ui)", fontSize: 10.5, color: "var(--ink-3)", fontWeight: 500 }}
+          >
             {d}
           </div>
         ))}
-        {cells.map((c, i) => {
-          const dayBills = c.inMonth ? billsByDay.get(c.iso) ?? [] : [];
-          let worst: BillCycleStatus | null = null;
-          for (const b of dayBills) {
-            const s = computeBillStatus(b.next_due_at, todayIso);
-            if (!worst || STATUS_RANK[s] > STATUS_RANK[worst]) worst = s;
-          }
-          const isToday = c.iso === todayIso;
-          const isSelected = c.iso && c.iso === selectedIso;
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", rowGap: 2 }}>
+        {cells.map((d, i) => {
+          if (d === null) return <div key={i} style={{ height: 44 }} />;
+          const iso = isoFor(view.year, view.month0, d);
+          const dayBills = billsByDay.get(iso) ?? [];
+          const { dotColor, count } = dotForDay(dayBills);
+          const isToday = iso === todayIso;
+          const isSelected = iso === selectedIso;
           return (
             <button
               key={i}
               type="button"
-              disabled={!c.inMonth}
-              onClick={() => c.inMonth && onSelectDay(c.iso === selectedIso ? null : c.iso)}
+              onClick={() => onSelectDay(isSelected ? null : iso)}
               style={{
-                aspectRatio: "1",
-                background: c.inMonth ? "var(--surface)" : "transparent",
-                border: isSelected
-                  ? "2px solid var(--primary, #0EA5E9)"
-                  : isToday
-                    ? "1px solid var(--text)"
-                    : "1px solid var(--border)",
-                borderRadius: 6,
-                padding: 4,
-                cursor: c.inMonth ? "pointer" : "default",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-                alignItems: "center",
-                fontFamily: "inherit",
-                color: "var(--text)",
+                appearance: "none",
+                border: 0,
+                cursor: "pointer",
+                padding: 0,
+                height: 44,
+                position: "relative",
+                background: "transparent",
               }}
             >
-              {c.inMonth ? (
-                <>
-                  <span style={{ fontSize: 11, fontWeight: isToday ? 700 : 400 }}>{c.day}</span>
-                  {worst ? (
+              <div
+                style={{
+                  margin: "2px auto 0",
+                  width: 32,
+                  height: 32,
+                  borderRadius: 999,
+                  display: "grid",
+                  placeItems: "center",
+                  background: isSelected ? "var(--brand)" : isToday ? "var(--brand-tint)" : "transparent",
+                  color: isSelected ? "var(--brand-on)" : isToday ? "var(--brand)" : "var(--ink-1)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 13,
+                  fontWeight: isToday || isSelected ? 600 : 400,
+                }}
+              >
+                {d}
+              </div>
+              {count > 0 && dotColor ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: "50%",
+                    bottom: 2,
+                    transform: "translateX(-50%)",
+                    display: "flex",
+                    gap: 2,
+                  }}
+                >
+                  {Array.from({ length: Math.min(3, count) }).map((_, k) => (
                     <span
+                      key={k}
                       style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: STATUS_COLOR[worst],
+                        width: 4,
+                        height: 4,
+                        borderRadius: 999,
+                        background: dotColor,
+                        opacity: isSelected ? 0.9 : 1,
                       }}
                     />
-                  ) : (
-                    <span style={{ width: 8, height: 8 }} />
-                  )}
-                </>
+                  ))}
+                </div>
               ) : null}
             </button>
           );
         })}
       </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginTop: 14,
+          paddingTop: 12,
+          borderTop: "1px solid var(--line-faint, var(--line-soft))",
+          fontFamily: "var(--font-ui)",
+          fontSize: 10.5,
+          color: "var(--ink-3)",
+          flexWrap: "wrap",
+        }}
+      >
+        <LegendDot color="var(--brand)" label="Autopay" />
+        <LegendDot color="var(--ink-1)" label="Manual" />
+        <LegendDot color="var(--warn)" label="Overdue" />
+        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "inline-flex", gap: 1.5 }}>
+            <DotMicro /> <DotMicro /> <DotMicro />
+          </span>
+          <span>= 3+ bills</span>
+        </span>
+      </div>
     </div>
+  );
+}
+
+const navBtn: React.CSSProperties = {
+  width: 30,
+  height: 30,
+  borderRadius: 999,
+  background: "var(--bg-tinted)",
+  border: 0,
+  display: "grid",
+  placeItems: "center",
+  cursor: "pointer",
+  color: "var(--ink-2)",
+};
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <span style={{ width: 6, height: 6, borderRadius: 999, background: color }} />
+      {label}
+    </span>
+  );
+}
+
+function DotMicro() {
+  return <span style={{ width: 3, height: 3, borderRadius: 999, background: "var(--ink-3)" }} />;
+}
+
+function ChevLeft() {
+  return (
+    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 6l-6 6 6 6" />
+    </svg>
+  );
+}
+
+function ChevRight() {
+  return (
+    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 6l6 6-6 6" />
+    </svg>
   );
 }

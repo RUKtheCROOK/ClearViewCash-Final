@@ -1,13 +1,185 @@
+/* Clear View Cash — design tokens (light + dark) */
+
 :root {
-  --bg: #f7f8fb;
-  --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #0f172a;
-  --muted: #64748b;
-  --primary: #0ea5e9;
-  --positive: #16a34a;
-  --negative: #dc2626;
+  /* === TYPE === */
+  --font-ui: var(--font-geist), -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-num: var(--font-jetbrains), "SF Mono", ui-monospace, Menlo, monospace;
+
+  /* Type scale — minor third 1.2, anchored at 15px UI body */
+  --t-cap: 11px;
+  --t-micro: 12px;
+  --t-small: 13px;
+  --t-body: 15px;
+  --t-lead: 17px;
+  --t-h3: 20px;
+  --t-h2: 28px;
+  --t-h1: 34px;
+  --t-display: 44px;
+
+  /* === SPACE — 4pt grid === */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 40px;
+  --s-9: 56px;
+
+  /* === RADIUS === */
+  --r-1: 4px;
+  --r-2: 8px;
+  --r-3: 12px;
+  --r-4: 16px;
+  --r-5: 20px;
+  --r-6: 28px;
+  --r-pill: 999px;
+
+  /* === COLOR — LIGHT === */
+  --bg-canvas: oklch(98.5% 0.005 90);
+  --bg-surface: oklch(100% 0 0);
+  --bg-sunken: oklch(96% 0.006 90);
+  --bg-tinted: oklch(94% 0.008 90);
+
+  --line-soft: oklch(92% 0.006 90);
+  --line-firm: oklch(86% 0.008 90);
+
+  --ink-1: oklch(20% 0.015 220);
+  --ink-2: oklch(42% 0.012 220);
+  --ink-3: oklch(58% 0.010 220);
+  --ink-4: oklch(72% 0.008 220);
+
+  --brand: oklch(36% 0.045 195);
+  --brand-hover: oklch(31% 0.045 195);
+  --brand-tint: oklch(95% 0.020 195);
+  --brand-on: oklch(98% 0.005 90);
+
+  --accent: oklch(72% 0.130 75);
+  --accent-tint: oklch(95% 0.030 75);
+
+  --pos: oklch(48% 0.090 155);
+  --pos-tint: oklch(95% 0.030 155);
+  --neg: oklch(50% 0.130 25);
+  --neg-tint: oklch(95% 0.030 25);
+  --warn: oklch(62% 0.140 65);
+  --warn-tint: oklch(95% 0.030 65);
+  --info: oklch(50% 0.090 240);
+  --info-tint: oklch(95% 0.025 240);
+
+  --projected: oklch(58% 0.010 220);
+  --projected-tint: oklch(94% 0.006 220);
+
+  --skeleton: oklch(94% 0.006 90);
+  --skeleton-hi: oklch(96% 0.006 90);
+
+  --shadow-1: 0 0 0 1px oklch(0% 0 0 / 0.04);
+  --shadow-2: 0 1px 2px oklch(0% 0 0 / 0.04), 0 0 0 1px oklch(0% 0 0 / 0.04);
+
+  /* Space hue constants */
+  --space-personal-h: 195;
+  --space-household-h: 30;
+  --space-business-h: 270;
+  --space-family-h: 145;
+  --space-travel-h: 220;
+
+  /* === LEGACY ALIASES ===
+     Existing pages reference --bg, --surface, --primary, etc. Map them onto
+     the new tokens so they keep rendering while we migrate each page. */
+  --bg: var(--bg-canvas);
+  --surface: var(--bg-surface);
+  --border: var(--line-soft);
+  --text: var(--ink-1);
+  --muted: var(--ink-3);
+  --primary: var(--brand);
+  --positive: var(--pos);
+  --negative: var(--neg);
+  --warning: var(--warn);
 }
+
+[data-theme="dark"] {
+  --bg-canvas: oklch(16% 0.012 240);
+  --bg-surface: oklch(20% 0.014 240);
+  --bg-sunken: oklch(14% 0.012 240);
+  --bg-tinted: oklch(24% 0.016 240);
+
+  --line-soft: oklch(26% 0.014 240);
+  --line-firm: oklch(32% 0.016 240);
+
+  --ink-1: oklch(96% 0.005 240);
+  --ink-2: oklch(75% 0.010 240);
+  --ink-3: oklch(60% 0.012 240);
+  --ink-4: oklch(46% 0.012 240);
+
+  --brand: oklch(72% 0.075 195);
+  --brand-hover: oklch(78% 0.075 195);
+  --brand-tint: oklch(28% 0.040 195);
+  --brand-on: oklch(18% 0.012 240);
+
+  --accent: oklch(78% 0.120 75);
+  --accent-tint: oklch(30% 0.050 75);
+
+  --pos: oklch(72% 0.110 155);
+  --pos-tint: oklch(28% 0.045 155);
+  --neg: oklch(70% 0.140 25);
+  --neg-tint: oklch(30% 0.050 25);
+  --warn: oklch(78% 0.130 65);
+  --warn-tint: oklch(30% 0.050 65);
+  --info: oklch(72% 0.090 240);
+  --info-tint: oklch(28% 0.040 240);
+
+  --projected: oklch(60% 0.012 240);
+  --projected-tint: oklch(24% 0.012 240);
+
+  --skeleton: oklch(24% 0.012 240);
+  --skeleton-hi: oklch(28% 0.012 240);
+
+  --shadow-1: 0 0 0 1px oklch(100% 0 0 / 0.06);
+  --shadow-2: 0 1px 2px oklch(0% 0 0 / 0.4), 0 0 0 1px oklch(100% 0 0 / 0.06);
+}
+
+/* === SPACE TINTING ===
+   Container with class="space" inherits a hue (--space-h) from inline style
+   or a parent class (.space-personal, .space-household, etc.). Children
+   resolve --space-wash, --space-pill-bg, --space-pill-fg, --space-edge. */
+.space {
+  --h: var(--space-h, 195);
+  --space-wash: oklch(96% 0.020 var(--h));
+  --space-pill-bg: oklch(92% 0.035 var(--h));
+  --space-pill-fg: oklch(35% 0.060 var(--h));
+  --space-edge: oklch(80% 0.045 var(--h));
+  --space-swatch: oklch(60% 0.080 var(--h));
+}
+
+[data-theme="dark"] .space {
+  --space-wash: oklch(24% 0.030 var(--h));
+  --space-pill-bg: oklch(30% 0.050 var(--h));
+  --space-pill-fg: oklch(85% 0.080 var(--h));
+  --space-edge: oklch(40% 0.060 var(--h));
+  --space-swatch: oklch(60% 0.080 var(--h));
+}
+
+/* Income source icon disc — flips bg/fg in dark mode using inline-set vars. */
+[data-theme="dark"] .cvc-income-icon {
+  background: var(--income-icon-bg-dark) !important;
+  color: var(--income-icon-fg-dark) !important;
+}
+
+/* Income empty-state illustration ring backdrop. */
+[data-theme="dark"] .cvc-income-empty-bg { background: oklch(24% 0.030 155) !important; }
+
+/* Income hero card — sage tint that flips in dark mode. */
+.cvc-income-hero { background: oklch(96% 0.018 155); border-color: oklch(90% 0.028 155); }
+[data-theme="dark"] .cvc-income-hero { background: oklch(22% 0.025 155); border-color: oklch(34% 0.045 155); }
+[data-theme="dark"] .cvc-income-hero > div[style*="border-top"] { border-top-color: oklch(30% 0.040 155) !important; }
+
+.space-personal { --space-h: var(--space-personal-h); }
+.space-household { --space-h: var(--space-household-h); }
+.space-business { --space-h: var(--space-business-h); }
+.space-family { --space-h: var(--space-family-h); }
+.space-travel { --space-h: var(--space-travel-h); }
+
+/* === BASELINE === */
 
 * {
   box-sizing: border-box;
@@ -17,9 +189,9 @@ html,
 body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  background: var(--bg);
-  color: var(--text);
+  font-family: var(--font-ui);
+  background: var(--bg-canvas);
+  color: var(--ink-1);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -31,35 +203,45 @@ a {
 .container {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--s-6);
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 12px 18px;
-  border-radius: 10px;
-  font-weight: 600;
+  padding: var(--s-3) var(--s-5);
+  border-radius: var(--r-2);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: var(--t-body);
   cursor: pointer;
   border: 1px solid transparent;
 }
 .btn-primary {
-  background: var(--primary);
-  color: white;
+  background: var(--brand);
+  color: var(--brand-on);
 }
 .btn-secondary {
-  background: var(--surface);
-  border-color: var(--border);
+  background: var(--bg-surface);
+  border-color: var(--line-soft);
+  color: var(--ink-1);
 }
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 24px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-4);
+  padding: var(--s-6);
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--ink-3);
+}
+
+/* Tabular numerals for any element marked .num */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }

@@ -5,3 +5,8 @@ export * from "./Button";
 export * from "./Money";
 export * from "./Stack";
 export * from "./Divider";
+export * from "./icons";
+export * from "./Avatar";
+export * from "./CategoryChip";
+export * from "./TxNum";
+export * from "./categoryGlyphs";

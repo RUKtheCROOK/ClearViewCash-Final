@@ -10,31 +10,38 @@ import {
   getMembersWithProfilesForSpace,
   getMySpaces,
   getTransactionsForView,
+  setTransactionRecurring,
+  setTransactionShare,
 } from "@cvc/api-client";
-import { displayMerchantName } from "@cvc/domain";
+import {
+  displayMerchantName,
+  groupTransactionsByDate,
+  resolveTxCategory,
+} from "@cvc/domain";
 import { effectiveSharedView, type SpaceMember } from "../../lib/view";
-import { EditPanel } from "./EditPanel";
-import { SuggestionsBanner } from "./SuggestionsBanner";
+import { useTheme } from "../../lib/theme-provider";
+import { I } from "../../lib/icons";
 import { TransactionsChartSection } from "./TransactionsChartSection";
+import { TxRow } from "./TxRow";
+import { DateGroupHeader } from "./DateGroupHeader";
+import { FilterChipRail, type RailChip } from "./FilterChipRail";
+import { ExpandedFilters } from "./ExpandedFilters";
+import { DetailSheet } from "./DetailSheet";
+import { ContextMenu } from "./ContextMenu";
+import { SplitEditor } from "./SplitEditor";
+import type {
+  AccountOpt,
+  ActivityTxn,
+  AmountRange,
+  DateRangeKey,
+  MemberOpt,
+  Status,
+} from "./types";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
 );
-
-interface Txn {
-  id: string;
-  merchant_name: string | null;
-  display_name: string | null;
-  amount: number;
-  posted_at: string;
-  category: string | null;
-  pending: boolean;
-  is_recurring: boolean;
-  account_id: string;
-  owner_user_id: string;
-  note: string | null;
-}
 
 interface Space {
   id: string;
@@ -43,41 +50,43 @@ interface Space {
   members?: SpaceMember[];
 }
 
-interface AccountOpt {
-  id: string;
-  name: string;
-}
-
-interface MemberOpt {
-  user_id: string;
-  display_name: string | null;
-  invited_email: string | null;
-}
-
-type Status = "all" | "pending" | "completed";
-
 export default function TransactionsPage() {
   const router = useRouter();
+  const { resolved } = useTheme();
+  const mode = resolved === "dark" ? ("dark" as const) : ("light" as const);
+
   const [authReady, setAuthReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
   const [rawSharedView, setRawSharedView] = useState(false);
-  const [txns, setTxns] = useState<Txn[]>([]);
+  const [tier, setTier] = useState<Tier>("starter");
+
+  const [txns, setTxns] = useState<ActivityTxn[]>([]);
   const [accountOpts, setAccountOpts] = useState<AccountOpt[]>([]);
   const [memberOpts, setMemberOpts] = useState<MemberOpt[]>([]);
+  const [search, setSearch] = useState("");
   const [status, setStatus] = useState<Status>("all");
   const [recurringOnly, setRecurringOnly] = useState(false);
   const [accountIds, setAccountIds] = useState<Set<string>>(new Set());
-  const [categoriesSel, setCategoriesSel] = useState<Set<string>>(new Set());
+  const [categoryKinds, setCategoryKinds] = useState<Set<string>>(new Set());
   const [ownerUserIds, setOwnerUserIds] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
-  const [editing, setEditing] = useState<Txn | null>(null);
+  const [dateRange, setDateRange] = useState<DateRangeKey>("30d");
+  const [amountRange, setAmountRange] = useState<AmountRange>({ min: null, max: null });
+  const [expanded, setExpanded] = useState(false);
+
+  const [editing, setEditing] = useState<ActivityTxn | null>(null);
+  const [contextTarget, setContextTarget] = useState<{
+    txn: ActivityTxn;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [splitFor, setSplitFor] = useState<ActivityTxn | null>(null);
+
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [splitTxnIds, setSplitTxnIds] = useState<Set<string>>(new Set());
   const [reloadCount, setReloadCount] = useState(0);
-  const [tier, setTier] = useState<Tier>("starter");
 
   useEffect(() => {
     (async () => {
@@ -128,10 +137,9 @@ export default function TransactionsPage() {
       restrictToOwnerId,
       limit: 200,
       accountIds: accountIds.size ? Array.from(accountIds) : undefined,
-      categories: categoriesSel.size ? Array.from(categoriesSel) : undefined,
       ownerUserIds: ownerUserIds.size ? Array.from(ownerUserIds) : undefined,
-    }).then((data) => setTxns(data as unknown as Txn[]));
-  }, [signedIn, activeSpaceId, sharedView, restrictToOwnerId, accountIds, categoriesSel, ownerUserIds, reloadCount]);
+    }).then((data) => setTxns(data as unknown as ActivityTxn[]));
+  }, [signedIn, activeSpaceId, sharedView, restrictToOwnerId, accountIds, ownerUserIds, reloadCount]);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -188,36 +196,78 @@ export default function TransactionsPage() {
       });
   }, [signedIn, txns]);
 
-  const categoryOpts = useMemo(() => {
+  const accountNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of accountOpts) map.set(a.id, a.name);
+    return map;
+  }, [accountOpts]);
+
+  const memberInitialById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of memberOpts) {
+      const name = m.display_name ?? m.invited_email ?? m.user_id;
+      map.set(m.user_id, (name.trim()[0] ?? "?").toUpperCase());
+    }
+    return map;
+  }, [memberOpts]);
+
+  const counts = useMemo(() => {
+    let pending = 0;
+    let completed = 0;
+    for (const t of txns) {
+      if (t.pending) pending += 1;
+      else completed += 1;
+    }
+    return { all: txns.length, pending, completed };
+  }, [txns]);
+
+  const filtered = useMemo(
+    () =>
+      applyFilters({
+        txns,
+        search,
+        status,
+        recurringOnly,
+        categoryKinds,
+        dateRange,
+        amountRange,
+      }),
+    [txns, search, status, recurringOnly, categoryKinds, dateRange, amountRange],
+  );
+
+  const groups = useMemo(() => groupTransactionsByDate(filtered), [filtered]);
+
+  const categorySuggestions = useMemo(() => {
     const set = new Set<string>();
     for (const t of txns) if (t.category) set.add(t.category);
     return Array.from(set).sort();
   }, [txns]);
 
-  const filtered = useMemo(() => {
-    return txns.filter((t) => {
-      if (status === "pending" && !t.pending) return false;
-      if (status === "completed" && t.pending) return false;
-      if (recurringOnly && !t.is_recurring) return false;
-      if (search && !displayMerchantName(t).toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
-  }, [txns, status, recurringOnly, search]);
+  const activeFilterCount =
+    accountIds.size +
+    categoryKinds.size +
+    ownerUserIds.size +
+    (status !== "all" ? 1 : 0) +
+    (recurringOnly ? 1 : 0) +
+    (dateRange !== "30d" ? 1 : 0) +
+    (amountRange.min !== null || amountRange.max !== null ? 1 : 0);
 
-  function memberLabel(m: MemberOpt): string {
-    return m.display_name ?? m.invited_email ?? m.user_id.slice(0, 8);
-  }
-
-  function selectedSetFromOptions(el: HTMLSelectElement): Set<string> {
-    const next = new Set<string>();
-    for (const opt of Array.from(el.selectedOptions)) next.add(opt.value);
+  function toggleInSet<T>(set: Set<T>, value: T): Set<T> {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
     return next;
   }
 
-  function fmtMoney(cents: number): string {
-    const sign = cents < 0 ? "-" : "";
-    const abs = Math.abs(cents) / 100;
-    return `${sign}$${abs.toFixed(2)}`;
+  function resetAll() {
+    setStatus("all");
+    setRecurringOnly(false);
+    setAccountIds(new Set());
+    setCategoryKinds(new Set());
+    setOwnerUserIds(new Set());
+    setDateRange("30d");
+    setAmountRange({ min: null, max: null });
+    setSearch("");
   }
 
   if (!authReady) {
@@ -231,7 +281,7 @@ export default function TransactionsPage() {
   if (!signedIn) {
     return (
       <main className="container" style={{ padding: "80px 0", maxWidth: 460 }}>
-        <h1>Transactions</h1>
+        <h1>Activity</h1>
         <p className="muted" style={{ marginTop: 16 }}>
           Sign in to view your transactions.
         </p>
@@ -246,237 +296,440 @@ export default function TransactionsPage() {
     );
   }
 
-  const filterCount = accountIds.size + categoriesSel.size + ownerUserIds.size;
+  const railChips: RailChip[] = [
+    {
+      key: "all",
+      label: "All",
+      active: activeFilterCount === 0,
+      onPress: () => resetAll(),
+    },
+    {
+      key: "pending",
+      label: "Pending",
+      count: counts.pending,
+      active: status === "pending",
+      onPress: () => setStatus(status === "pending" ? "all" : "pending"),
+    },
+    {
+      key: "recurring",
+      label: "Recurring",
+      active: recurringOnly,
+      onPress: () => setRecurringOnly((v) => !v),
+    },
+    {
+      key: "more",
+      label: expanded ? "Hide filters" : "More",
+      hasIcon: true,
+      active: expanded,
+      onPress: () => setExpanded((v) => !v),
+    },
+  ];
+
+  const editingHidden = editing ? hiddenIds.has(editing.id) : false;
 
   return (
-    <main className="container" style={{ padding: "32px 0" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>Transactions</h1>
-        <Link href="/" className="muted" style={{ fontSize: 14 }}>
-          ← Home
-        </Link>
-      </div>
-
-      {/* Space + view */}
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-        <label className="muted" style={{ fontSize: 13 }}>
-          Space
-        </label>
-        <select
-          value={activeSpaceId ?? ""}
-          onChange={(e) => {
-            setActiveSpaceId(e.target.value);
-            if (typeof window !== "undefined") localStorage.setItem("cvc-active-space", e.target.value);
-          }}
-          style={selectStyle}
-        >
-          {spaces.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        {toggleVisible ? (
-          <button
-            className={sharedView ? "btn btn-primary" : "btn btn-secondary"}
-            style={{ padding: "8px 14px", fontSize: 14 }}
-            onClick={() => setRawSharedView((v) => !v)}
-          >
-            {sharedView ? "Shared view" : "My view"}
-          </button>
-        ) : null}
-      </div>
-
-      {/* Search */}
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search merchant…"
-        style={{ ...inputStyle, width: "100%", marginBottom: 16 }}
-      />
-
-      {/* Status + recurring */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        {(["all", "pending", "completed"] as Status[]).map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatus(s)}
-            className={status === s ? "btn btn-primary" : "btn btn-secondary"}
-            style={{ padding: "6px 14px", fontSize: 13 }}
-          >
-            {s}
-          </button>
-        ))}
-        <button
-          onClick={() => setRecurringOnly((v) => !v)}
-          className={recurringOnly ? "btn btn-primary" : "btn btn-secondary"}
-          style={{ padding: "6px 14px", fontSize: 13 }}
-        >
-          recurring
-        </button>
-      </div>
-
-      {/* Multi-axis filters */}
+    <main style={{ background: "var(--bg-canvas)", minHeight: "100vh", paddingBottom: 80 }}>
+      {/* Sticky header */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: sharedView ? "1fr 1fr 1fr" : "1fr 1fr",
-          gap: 12,
-          marginBottom: 16,
+          position: "sticky",
+          top: 0,
+          zIndex: 5,
+          background: "var(--bg-canvas)",
+          borderBottom: "1px solid var(--line-soft)",
         }}
       >
-        <div>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
-            Account
-          </div>
-          <select
-            multiple
-            value={Array.from(accountIds)}
-            onChange={(e) => setAccountIds(selectedSetFromOptions(e.target))}
-            style={{ ...inputStyle, width: "100%", height: 96 }}
+        <div
+          style={{
+            maxWidth: 880,
+            margin: "0 auto",
+            padding: "14px 16px 8px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <h1
+            style={{
+              fontFamily: "var(--font-ui)",
+              fontSize: 28,
+              fontWeight: 500,
+              letterSpacing: "-0.02em",
+              color: "var(--ink-1)",
+              margin: 0,
+            }}
           >
-            {accountOpts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
-            Category
-          </div>
-          <select
-            multiple
-            value={Array.from(categoriesSel)}
-            onChange={(e) => setCategoriesSel(selectedSetFromOptions(e.target))}
-            style={{ ...inputStyle, width: "100%", height: 96 }}
-          >
-            {categoryOpts.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-        {sharedView ? (
-          <div>
-            <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
-              Person
-            </div>
+            Activity
+          </h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <select
-              multiple
-              value={Array.from(ownerUserIds)}
-              onChange={(e) => setOwnerUserIds(selectedSetFromOptions(e.target))}
-              style={{ ...inputStyle, width: "100%", height: 96 }}
+              value={activeSpaceId ?? ""}
+              onChange={(e) => {
+                setActiveSpaceId(e.target.value);
+                if (typeof window !== "undefined")
+                  localStorage.setItem("cvc-active-space", e.target.value);
+              }}
+              style={spaceSelectStyle}
             >
-              {memberOpts.map((m) => (
-                <option key={m.user_id} value={m.user_id}>
-                  {memberLabel(m)}
+              {spaces.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
                 </option>
               ))}
             </select>
+            {toggleVisible ? (
+              <button
+                type="button"
+                onClick={() => setRawSharedView((v) => !v)}
+                style={viewToggleStyle(sharedView)}
+              >
+                {sharedView ? "Shared view" : "My view"}
+              </button>
+            ) : null}
+            <Link
+              href="/"
+              className="muted"
+              style={{ fontSize: 13, textDecoration: "none", color: "var(--ink-3)" }}
+            >
+              ← Home
+            </Link>
           </div>
-        ) : null}
+        </div>
+
+        <div style={{ maxWidth: 880, margin: "0 auto", padding: "0 16px 8px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              height: 38,
+              padding: "0 12px",
+              borderRadius: 10,
+              background: "var(--bg-tinted)",
+            }}
+          >
+            <I.search color="var(--ink-3)" size={16} />
+            <input
+              type="text"
+              placeholder="Search merchants, notes, amounts…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{
+                flex: 1,
+                border: 0,
+                outline: 0,
+                background: "transparent",
+                fontFamily: "var(--font-ui)",
+                fontSize: 13,
+                color: "var(--ink-1)",
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={{ maxWidth: 880, margin: "0 auto" }}>
+          <FilterChipRail chips={railChips} />
+          {expanded ? (
+            <ExpandedFilters
+              mode={mode}
+              status={status}
+              setStatus={setStatus}
+              counts={counts}
+              accountOpts={accountOpts}
+              accountIds={accountIds}
+              toggleAccount={(id) => setAccountIds((s) => toggleInSet(s, id))}
+              categoryKinds={categoryKinds}
+              toggleCategoryKind={(k) => setCategoryKinds((s) => toggleInSet(s, k))}
+              memberOpts={memberOpts}
+              ownerUserIds={ownerUserIds}
+              toggleOwner={(id) => setOwnerUserIds((s) => toggleInSet(s, id))}
+              showPersonGroup={sharedView}
+              dateRange={dateRange}
+              setDateRange={setDateRange}
+              amountRange={amountRange}
+              setAmountRange={setAmountRange}
+              onApply={() => setExpanded(false)}
+              onReset={resetAll}
+              totalMatches={filtered.length}
+            />
+          ) : null}
+        </div>
       </div>
 
-      {filterCount > 0 ? (
-        <button
-          className="btn btn-secondary"
-          style={{ padding: "6px 14px", fontSize: 13, marginBottom: 16 }}
-          onClick={() => {
-            setAccountIds(new Set());
-            setCategoriesSel(new Set());
-            setOwnerUserIds(new Set());
-          }}
-        >
-          Clear filters
-        </button>
-      ) : null}
+      <div style={{ maxWidth: 880, margin: "0 auto" }}>
+        {tier !== "starter" && filtered.length > 0 ? (
+          <div style={{ padding: 16 }}>
+            <TransactionsChartSection txns={filtered} />
+          </div>
+        ) : null}
 
-      <SuggestionsBanner
-        client={supabase}
-        txns={txns}
-        spaceId={activeSpaceId}
-        onPromoted={() => setReloadCount((c) => c + 1)}
-      />
-
-      {tier !== "starter" ? <TransactionsChartSection txns={filtered} /> : null}
-
-      {/* List */}
-      <div className="card" style={{ padding: 0 }}>
-        {filtered.length === 0 ? (
-          <p className="muted" style={{ padding: 24, margin: 0 }}>
-            {sharedView
-              ? "Nothing shared into this space matches your filters."
-              : "No transactions."}
-          </p>
+        {groups.length === 0 ? (
+          <div style={{ padding: "32px 16px", textAlign: "center" }}>
+            <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--ink-3)" }}>
+              {sharedView
+                ? "Nothing shared into this space matches your filters."
+                : "No transactions match your filters."}
+            </p>
+          </div>
         ) : (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {filtered.map((t) => (
-              <li
-                key={t.id}
-                onClick={() => setEditing(t)}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "14px 20px",
-                  borderBottom: "1px solid var(--border)",
-                  cursor: "pointer",
-                }}
-              >
-                <div>
-                  <div>{displayMerchantName(t)}</div>
-                  <div className="muted" style={{ fontSize: 13 }}>
-                    {t.category ?? "Uncategorized"} · {t.posted_at}
-                    {t.pending ? " · pending" : ""}
-                    {t.is_recurring ? " · recurring" : ""}
-                    {t.note ? " · note" : ""}
-                    {splitTxnIds.has(t.id) ? " · split" : ""}
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <span
-                    style={{
-                      color: t.amount > 0 ? "var(--positive)" : "var(--text)",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {fmtMoney(t.amount)}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
+          groups.map((group) => (
+            <div key={group.key}>
+              <DateGroupHeader label={group.label} count={group.count} totalCents={group.totalCents} />
+              {group.txns.map((t) => (
+                <TxRow
+                  key={t.id}
+                  tx={t}
+                  mode={mode}
+                  accountName={accountNameById.get(t.account_id) ?? null}
+                  sharedInitial={sharedView ? memberInitialById.get(t.owner_user_id) ?? null : null}
+                  splitFlag={splitTxnIds.has(t.id)}
+                  onTap={() => setEditing(t)}
+                  onContextMenu={(x, y) => setContextTarget({ txn: t, x, y })}
+                />
+              ))}
+            </div>
+          ))
         )}
       </div>
 
-      <EditPanel
+      {editing ? (
+        <DetailSheet
+          client={supabase}
+          txn={editing}
+          spaceId={activeSpaceId}
+          sharedView={sharedView}
+          hiddenInSpace={editingHidden}
+          accountName={accountNameById.get(editing.account_id) ?? null}
+          mode={mode}
+          categorySuggestions={categorySuggestions}
+          onClose={() => setEditing(null)}
+          onSaved={() => setReloadCount((c) => c + 1)}
+        />
+      ) : null}
+
+      <ContextMenu
+        open={!!contextTarget}
+        x={contextTarget?.x ?? 0}
+        y={contextTarget?.y ?? 0}
+        items={
+          contextTarget
+            ? buildContextItems({
+                txn: contextTarget.txn,
+                sharedView,
+                isHidden: hiddenIds.has(contextTarget.txn.id),
+                onEditCategory: () => {
+                  setEditing(contextTarget.txn);
+                  setContextTarget(null);
+                },
+                onToggleRecurring: async () => {
+                  await setTransactionRecurring(supabase, {
+                    id: contextTarget.txn.id,
+                    is_recurring: !contextTarget.txn.is_recurring,
+                  });
+                  setReloadCount((c) => c + 1);
+                },
+                onSplit: () => {
+                  setSplitFor(contextTarget.txn);
+                  setContextTarget(null);
+                },
+                onShareToggle: async () => {
+                  if (!activeSpaceId) return;
+                  await setTransactionShare(supabase, {
+                    transaction_id: contextTarget.txn.id,
+                    space_id: activeSpaceId,
+                    hidden: false,
+                  });
+                  setReloadCount((c) => c + 1);
+                },
+                onHideToggle: async () => {
+                  if (!activeSpaceId) return;
+                  const wasHidden = hiddenIds.has(contextTarget.txn.id);
+                  await setTransactionShare(supabase, {
+                    transaction_id: contextTarget.txn.id,
+                    space_id: activeSpaceId,
+                    hidden: !wasHidden,
+                  });
+                  setReloadCount((c) => c + 1);
+                },
+              })
+            : []
+        }
+        onClose={() => setContextTarget(null)}
+      />
+
+      <SplitEditor
         client={supabase}
-        txn={editing}
+        visible={!!splitFor}
+        txnId={splitFor?.id ?? null}
+        txnAmountCents={splitFor?.amount ?? 0}
         spaceId={activeSpaceId}
-        sharedView={sharedView}
-        hiddenInSpace={editing ? hiddenIds.has(editing.id) : false}
-        categorySuggestions={categoryOpts}
-        onClose={() => setEditing(null)}
+        defaultCategory={splitFor?.category ?? null}
+        onClose={() => setSplitFor(null)}
         onSaved={() => setReloadCount((c) => c + 1)}
       />
     </main>
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  border: "1px solid var(--border)",
-  borderRadius: 10,
-  padding: "10px 12px",
-  fontSize: 15,
-  background: "var(--surface)",
-  color: "var(--text)",
+interface FilterArgs {
+  txns: ActivityTxn[];
+  search: string;
+  status: Status;
+  recurringOnly: boolean;
+  categoryKinds: Set<string>;
+  dateRange: DateRangeKey;
+  amountRange: AmountRange;
+}
+
+function applyFilters({
+  txns,
+  search,
+  status,
+  recurringOnly,
+  categoryKinds,
+  dateRange,
+  amountRange,
+}: FilterArgs): ActivityTxn[] {
+  const today = startOfDayLocal(new Date());
+  const cutoff = computeCutoff(dateRange, today);
+  const search0 = search.trim().toLowerCase();
+
+  return txns.filter((t) => {
+    if (status === "pending" && !t.pending) return false;
+    if (status === "completed" && t.pending) return false;
+    if (recurringOnly && !t.is_recurring) return false;
+    if (search0) {
+      const merchant = displayMerchantName(t).toLowerCase();
+      const noteText = (t.note ?? "").toLowerCase();
+      const amountText = (Math.abs(t.amount) / 100).toFixed(2);
+      if (
+        !merchant.includes(search0) &&
+        !noteText.includes(search0) &&
+        !amountText.includes(search0)
+      ) {
+        return false;
+      }
+    }
+    if (categoryKinds.size > 0) {
+      const kind = resolveTxCategory(t.category, t.amount).kind;
+      if (!categoryKinds.has(kind)) return false;
+    }
+    if (cutoff) {
+      const d = parseDateLocal(t.posted_at);
+      if (!d) return false;
+      if (d.getTime() < cutoff.getTime()) return false;
+    }
+    if (amountRange.min !== null) {
+      if (Math.abs(t.amount) / 100 < amountRange.min) return false;
+    }
+    if (amountRange.max !== null) {
+      if (Math.abs(t.amount) / 100 > amountRange.max) return false;
+    }
+    return true;
+  });
+}
+
+function startOfDayLocal(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function parseDateLocal(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+  if (!m) return null;
+  const [, y, mo, da] = m;
+  return new Date(Number(y), Number(mo) - 1, Number(da));
+}
+
+function computeCutoff(range: DateRangeKey, today: Date): Date | null {
+  if (range === "all") return null;
+  if (range === "7d") return new Date(today.getTime() - 7 * 86_400_000);
+  if (range === "30d") return new Date(today.getTime() - 30 * 86_400_000);
+  if (range === "month") return new Date(today.getFullYear(), today.getMonth(), 1);
+  return null;
+}
+
+interface ContextItem {
+  key: string;
+  icon: "edit" | "bell" | "split" | "share" | "hide";
+  label: string;
+  hint?: string;
+  warn?: boolean;
+  onClick: () => void;
+}
+
+function buildContextItems({
+  txn,
+  sharedView,
+  isHidden,
+  onEditCategory,
+  onToggleRecurring,
+  onSplit,
+  onShareToggle,
+  onHideToggle,
+}: {
+  txn: ActivityTxn;
+  sharedView: boolean;
+  isHidden: boolean;
+  onEditCategory: () => void;
+  onToggleRecurring: () => void;
+  onSplit: () => void;
+  onShareToggle: () => void;
+  onHideToggle: () => void;
+}): ContextItem[] {
+  const cat = resolveTxCategory(txn.category, txn.amount);
+  const items: ContextItem[] = [
+    { key: "edit", icon: "edit", label: "Edit category", hint: cat.label, onClick: onEditCategory },
+    {
+      key: "recur",
+      icon: "bell",
+      label: txn.is_recurring ? "Stop recurring" : "Mark as recurring",
+      onClick: onToggleRecurring,
+    },
+    { key: "split", icon: "split", label: "Split transaction", onClick: onSplit },
+  ];
+  if (sharedView) {
+    items.push({
+      key: "share",
+      icon: "share",
+      label: "Share to space",
+      hint: isHidden ? "Currently hidden" : "Currently shared",
+      onClick: onShareToggle,
+    });
+    items.push({
+      key: "hide",
+      icon: "hide",
+      label: isHidden ? "Unhide" : "Hide from space",
+      warn: !isHidden,
+      onClick: onHideToggle,
+    });
+  }
+  return items;
+}
+
+const spaceSelectStyle: React.CSSProperties = {
+  height: 32,
+  padding: "0 10px",
+  borderRadius: 8,
+  border: "1px solid var(--line-soft)",
+  background: "var(--bg-surface)",
+  fontFamily: "var(--font-ui)",
+  fontSize: 13,
+  color: "var(--ink-1)",
 };
 
-const selectStyle: React.CSSProperties = {
-  ...inputStyle,
-  padding: "8px 10px",
-};
+function viewToggleStyle(active: boolean): React.CSSProperties {
+  return {
+    appearance: "none",
+    cursor: "pointer",
+    height: 32,
+    padding: "0 12px",
+    borderRadius: 999,
+    background: active ? "var(--ink-1)" : "var(--bg-surface)",
+    color: active ? "var(--bg-canvas)" : "var(--ink-1)",
+    border: `1px solid ${active ? "var(--ink-1)" : "var(--line-soft)"}`,
+    fontFamily: "var(--font-ui)",
+    fontSize: 12.5,
+    fontWeight: 500,
+  };
+}

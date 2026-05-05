@@ -1,21 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Card, HStack, Stack, Text, colors, radius, space } from "@cvc/ui";
 import {
   detectRecurring,
   nextDueFromCadence,
   normalizeMerchant,
+  resolveBillBranding,
   type RecurringGroup,
 } from "@cvc/domain";
-import {
-  tagTransactionsRecurring,
-  upsertBill,
-  upsertIncomeEvent,
-} from "@cvc/api-client";
+import { tagTransactionsRecurring, upsertBill, upsertIncomeEvent } from "@cvc/api-client";
+import { useTheme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
+import { RecurringDetectCard, type DetectedPattern } from "./bills/RecurringDetectCard";
 
-const DISMISS_KEY = "cvc-recurring-dismissed-v1";
+const DISMISS_KEY = "cvc-bills-detect-dismissed-v1";
 
 interface MinimalTxn {
   id: string;
@@ -24,188 +21,182 @@ interface MinimalTxn {
   posted_at: string;
   pending: boolean;
   is_recurring: boolean;
+  account_id?: string | null;
+}
+
+interface AccountLite {
+  id: string;
+  name: string;
+  display_name: string | null;
+  mask: string | null;
 }
 
 interface Props {
   txns: MinimalTxn[];
+  accounts?: AccountLite[];
   spaceId: string | null;
+  ownerUserId?: string | null;
   onPromoted: () => void;
+  limit?: number;
+  /** "outbound" promotes to bills (default), "inbound" promotes to income_events. */
+  direction?: "outbound" | "inbound";
 }
 
 function dayOfMonth(iso: string): number {
-  const d = new Date(iso);
-  const day = d.getUTCDate();
-  if (Number.isFinite(day) && day >= 1 && day <= 31) return day;
-  return 1;
+  const d = new Date(`${iso}T00:00:00`);
+  const day = d.getDate();
+  return Number.isFinite(day) && day >= 1 && day <= 31 ? day : 1;
 }
 
-export function RecurringSuggestionsBanner({ txns, spaceId, onPromoted }: Props) {
+function accountLabel(accounts: AccountLite[], id: string | null | undefined): string | null {
+  if (!id) return null;
+  const a = accounts.find((x) => x.id === id);
+  if (!a) return null;
+  const name = a.display_name ?? a.name;
+  return a.mask ? `${name.split(/\s+/)[0]} ··${a.mask}` : name;
+}
+
+export function RecurringSuggestionsBanner({
+  txns,
+  accounts,
+  spaceId,
+  ownerUserId,
+  onPromoted,
+  limit,
+  direction = "outbound",
+}: Props) {
+  const { palette, mode } = useTheme();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [collapsed, setCollapsed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(DISMISS_KEY).then((raw) => {
-      if (!raw) return;
+    (async () => {
       try {
-        const arr = JSON.parse(raw) as string[];
-        setDismissed(new Set(arr));
+        const raw = await AsyncStorage.getItem(DISMISS_KEY);
+        setDismissed(raw ? new Set(JSON.parse(raw)) : new Set());
       } catch {
-        // ignore
+        setDismissed(new Set());
       }
-    });
+    })();
   }, []);
 
-  async function persistDismissed(next: Set<string>) {
-    setDismissed(next);
-    try {
-      await AsyncStorage.setItem(DISMISS_KEY, JSON.stringify(Array.from(next)));
-    } catch {
-      // ignore
-    }
-  }
-
-  const groups = useMemo(() => {
+  const patterns: DetectedPattern[] = useMemo(() => {
     const recurringIds = new Set(txns.filter((t) => t.is_recurring).map((t) => t.id));
     const detected = detectRecurring(txns as never);
-    return detected.filter((g: RecurringGroup) => {
+    const eligible = detected.filter((g: RecurringGroup) => {
+      if (direction === "outbound" && g.is_inbound) return false;
+      if (direction === "inbound" && !g.is_inbound) return false;
       if (g.transaction_ids.every((id) => recurringIds.has(id))) return false;
       if (dismissed.has(normalizeMerchant(g.merchant_name))) return false;
       return true;
     });
-  }, [txns, dismissed]);
-
-  if (groups.length === 0) return null;
-
-  async function promote(group: RecurringGroup) {
-    if (!spaceId) {
-      setError("Switch to a space to promote this pattern.");
-      return;
-    }
-    setBusy(group.id);
-    setError(null);
-    try {
-      const { data: u } = await supabase.auth.getUser();
-      const userId = u.user?.id;
-      if (!userId) throw new Error("Not signed in");
-      const next_due_at = nextDueFromCadence(group.last_seen, group.cadence);
-      const due_day = dayOfMonth(group.last_seen);
-      const payload = {
-        space_id: spaceId,
-        owner_user_id: userId,
-        name: group.merchant_name,
-        amount: Math.abs(group.median_amount),
-        due_day,
-        cadence: group.cadence,
-        next_due_at,
-        autopay: false,
-        linked_account_id: null,
-        source: "detected" as const,
-        recurring_group_id: null,
-        category: null,
+    const accountList = accounts ?? [];
+    return eligible.map<DetectedPattern>((g) => {
+      const txnsForGroup = txns
+        .filter((t) => g.transaction_ids.includes(t.id))
+        .sort((a, b) => b.posted_at.localeCompare(a.posted_at));
+      const sample = txnsForGroup[0];
+      return {
+        groupId: g.id,
+        merchantName: g.merchant_name,
+        medianCents: g.median_amount,
+        cadence: g.cadence,
+        dayOfMonth: dayOfMonth(g.last_seen),
+        recentCharges: txnsForGroup.slice(0, 3).map((t) => ({ posted_at: t.posted_at, amount: t.amount })),
+        fromAccountLabel: accountLabel(accountList, sample?.account_id ?? null),
+        isInbound: g.is_inbound,
       };
-      if (group.is_inbound) {
-        await upsertIncomeEvent(supabase, payload);
-      } else {
-        await upsertBill(supabase, payload);
+    });
+  }, [txns, accounts, dismissed, direction]);
+
+  const visible = limit ? patterns.slice(0, limit) : patterns;
+  if (visible.length === 0) return null;
+
+  async function promote(p: DetectedPattern) {
+    if (!spaceId) return;
+    setBusy(p.groupId);
+    try {
+      let userId = ownerUserId;
+      if (!userId) {
+        const { data: u } = await supabase.auth.getUser();
+        userId = u.user?.id ?? null;
       }
-      await tagTransactionsRecurring(supabase, { ids: group.transaction_ids });
+      if (!userId) return;
+      const detected = detectRecurring(txns as never).find((g) => g.id === p.groupId);
+      if (!detected) return;
+      const next_due_at = nextDueFromCadence(detected.last_seen, detected.cadence);
+      if (detected.is_inbound) {
+        await upsertIncomeEvent(supabase, {
+          space_id: spaceId,
+          owner_user_id: userId,
+          name: detected.merchant_name,
+          amount: Math.abs(detected.median_amount),
+          due_day: dayOfMonth(detected.last_seen),
+          cadence: detected.cadence,
+          next_due_at,
+          autopay: false,
+          linked_account_id: null,
+          source: "detected",
+          recurring_group_id: null,
+          category: null,
+        });
+      } else {
+        const branding = resolveBillBranding({
+          name: detected.merchant_name,
+          category: null,
+          payee_hue: null,
+          payee_glyph: null,
+        });
+        await upsertBill(supabase, {
+          space_id: spaceId,
+          owner_user_id: userId,
+          name: detected.merchant_name,
+          amount: Math.abs(detected.median_amount),
+          due_day: dayOfMonth(detected.last_seen),
+          cadence: detected.cadence,
+          next_due_at,
+          autopay: false,
+          linked_account_id: null,
+          source: "detected",
+          recurring_group_id: null,
+          category: null,
+          payee_hue: branding.hue,
+          payee_glyph: branding.glyph,
+          notes: null,
+        });
+      }
+      await tagTransactionsRecurring(supabase, { ids: detected.transaction_ids });
       onPromoted();
-    } catch (e) {
-      setError((e as Error).message ?? "Could not promote pattern.");
     } finally {
       setBusy(null);
     }
   }
 
-  async function dismiss(group: RecurringGroup) {
+  async function dismiss(p: DetectedPattern) {
     const next = new Set(dismissed);
-    next.add(normalizeMerchant(group.merchant_name));
-    await persistDismissed(next);
-  }
-
-  function fmtMoney(cents: number): string {
-    return `$${(Math.abs(cents) / 100).toFixed(2)}`;
+    next.add(normalizeMerchant(p.merchantName));
+    setDismissed(next);
+    try {
+      await AsyncStorage.setItem(DISMISS_KEY, JSON.stringify(Array.from(next)));
+    } catch {
+      /* ignore */
+    }
   }
 
   return (
-    <Card>
-      <Stack gap="sm">
-        <HStack justify="space-between" align="center">
-          <Stack gap="xs">
-            <Text variant="title">Suggested patterns</Text>
-            <Text variant="muted" style={{ fontSize: 12 }}>
-              We noticed {groups.length} repeating {groups.length === 1 ? "charge" : "charges"} that
-              aren't tracked yet.
-            </Text>
-          </Stack>
-          <Pressable onPress={() => setCollapsed((c) => !c)}>
-            <Text variant="muted">{collapsed ? "Show" : "Hide"}</Text>
-          </Pressable>
-        </HStack>
-
-        {error ? <Text style={{ color: colors.negative }}>{error}</Text> : null}
-
-        {!collapsed
-          ? groups.map((g) => {
-              const promoting = busy === g.id;
-              return (
-                <View
-                  key={g.id}
-                  style={{
-                    borderTopWidth: 1,
-                    borderColor: colors.border,
-                    paddingTop: space.sm,
-                  }}
-                >
-                  <HStack justify="space-between" align="center">
-                    <Stack gap="xs" style={{ flex: 1, marginRight: space.md }}>
-                      <Text>{g.merchant_name}</Text>
-                      <Text variant="muted" style={{ fontSize: 12 }}>
-                        {g.cadence} · {fmtMoney(g.median_amount)} · last seen {g.last_seen}
-                      </Text>
-                    </Stack>
-                    <HStack gap="sm">
-                      <Pressable
-                        onPress={() => dismiss(g)}
-                        style={{
-                          paddingHorizontal: space.md,
-                          paddingVertical: space.sm,
-                          borderRadius: radius.md,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                        }}
-                      >
-                        <Text variant="muted" style={{ fontSize: 13 }}>
-                          Dismiss
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => promote(g)}
-                        disabled={promoting}
-                        style={{
-                          paddingHorizontal: space.md,
-                          paddingVertical: space.sm,
-                          borderRadius: radius.md,
-                          backgroundColor: promoting ? colors.textMuted : colors.primary,
-                        }}
-                      >
-                        <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-                          {promoting
-                            ? "Saving…"
-                            : g.is_inbound
-                              ? "Promote to income"
-                              : "Promote to bill"}
-                        </Text>
-                      </Pressable>
-                    </HStack>
-                  </HStack>
-                </View>
-              );
-            })
-          : null}
-      </Stack>
-    </Card>
+    <>
+      {visible.map((p) => (
+        <RecurringDetectCard
+          key={p.groupId}
+          pattern={p}
+          palette={palette}
+          mode={mode}
+          compact={!!limit}
+          busy={busy === p.groupId}
+          onAdd={() => promote(p)}
+          onDismiss={() => dismiss(p)}
+        />
+      ))}
+    </>
   );
 }

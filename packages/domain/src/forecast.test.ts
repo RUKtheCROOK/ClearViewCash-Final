@@ -19,14 +19,26 @@ const baseBill = (over: Partial<Bill>): Bill => ({
   source: "manual",
   recurring_group_id: null,
   category: null,
+  payee_hue: null,
+  payee_glyph: null,
+  notes: null,
   ...over,
 });
 
-const baseIncome = (over: Partial<IncomeEvent>): IncomeEvent => ({
-  ...baseBill({ ...over, name: over.name ?? "Paycheck" }),
-  actual_amount: over.actual_amount ?? null,
-  received_at: over.received_at ?? null,
-});
+const baseIncome = (over: Partial<IncomeEvent>): IncomeEvent => {
+  const b = baseBill({ ...over, name: over.name ?? "Paycheck" });
+  // IncomeEvent omits payee fields — strip them before spreading.
+  const { payee_hue: _ph, payee_glyph: _pg, notes: _n, ...rest } = b;
+  return {
+    ...rest,
+    actual_amount: over.actual_amount ?? null,
+    received_at: over.received_at ?? null,
+    source_type: over.source_type ?? "paycheck",
+    amount_low: over.amount_low ?? null,
+    amount_high: over.amount_high ?? null,
+    paused_at: over.paused_at ?? null,
+  };
+};
 
 describe("forecast", () => {
   it("subtracts bills on their due date", () => {

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -117,6 +117,16 @@ const selectStyle: React.CSSProperties = {
 };
 
 export default function GoalsPage() {
+  // useSearchParams() requires a Suspense boundary in Next 15 to allow
+  // partial prerender; wrap the inner component so the page can build.
+  return (
+    <Suspense fallback={null}>
+      <GoalsPageInner />
+    </Suspense>
+  );
+}
+
+function GoalsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);

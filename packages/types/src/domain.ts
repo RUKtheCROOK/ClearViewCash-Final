@@ -97,14 +97,59 @@ export const BillSchema = z.object({
   source: z.enum(["detected", "manual"]),
   recurring_group_id: UuidSchema.nullable(),
   category: z.string().nullable(),
+  payee_hue: z.number().int().min(0).max(359).nullable(),
+  payee_glyph: z.string().nullable(),
+  notes: z.string().nullable(),
 });
 export type Bill = z.infer<typeof BillSchema>;
 
-export const IncomeEventSchema = BillSchema.extend({
+export const BillReminderKindSchema = z.enum(["days_before", "on_due_date", "mute_all"]);
+export type BillReminderKind = z.infer<typeof BillReminderKindSchema>;
+
+export const BillReminderSchema = z.object({
+  id: UuidSchema,
+  bill_id: UuidSchema,
+  kind: BillReminderKindSchema,
+  days_before: z.number().int().min(0).max(30).nullable(),
+  time_of_day: z.string(),
+  enabled: z.boolean(),
+});
+export type BillReminder = z.infer<typeof BillReminderSchema>;
+
+export const IncomeSourceTypeSchema = z.enum([
+  "paycheck",
+  "freelance",
+  "rental",
+  "investment",
+  "one_time",
+]);
+export type IncomeSourceType = z.infer<typeof IncomeSourceTypeSchema>;
+
+// IncomeEvent shares most of Bill's shape but income_events has no
+// payee_hue/payee_glyph/notes columns — those are bill-only.
+export const IncomeEventSchema = BillSchema.omit({
+  payee_hue: true,
+  payee_glyph: true,
+  notes: true,
+}).extend({
   actual_amount: MoneyCentsSchema.nullable(),
   received_at: IsoDateSchema.nullable(),
+  source_type: IncomeSourceTypeSchema,
+  amount_low: MoneyCentsSchema.nullable(),
+  amount_high: MoneyCentsSchema.nullable(),
+  paused_at: z.string().nullable(),
 });
 export type IncomeEvent = z.infer<typeof IncomeEventSchema>;
+
+export const IncomeReceiptSchema = z.object({
+  id: UuidSchema,
+  income_event_id: UuidSchema,
+  amount: MoneyCentsSchema,
+  received_at: IsoDateSchema,
+  transaction_id: UuidSchema.nullable(),
+  created_at: z.string(),
+});
+export type IncomeReceipt = z.infer<typeof IncomeReceiptSchema>;
 
 export type EditableBill = Pick<
   Bill,
@@ -119,11 +164,33 @@ export type EditableBill = Pick<
   | "source"
   | "recurring_group_id"
   | "category"
+  | "payee_hue"
+  | "payee_glyph"
+  | "notes"
+  | "linked_account_id"
 >;
 
-export type EditableIncome = EditableBill & {
+export type EditableIncome = Pick<
+  Bill,
+  | "id"
+  | "space_id"
+  | "owner_user_id"
+  | "name"
+  | "amount"
+  | "cadence"
+  | "next_due_at"
+  | "autopay"
+  | "source"
+  | "recurring_group_id"
+  | "category"
+  | "linked_account_id"
+> & {
   actual_amount: number | null;
   received_at: string | null;
+  source_type: IncomeSourceType;
+  amount_low: number | null;
+  amount_high: number | null;
+  paused_at: string | null;
 };
 
 export interface BillPaymentSummary {

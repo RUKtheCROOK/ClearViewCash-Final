@@ -443,13 +443,13 @@ export async function deleteIncomeEvent(client: CvcSupabaseClient, id: string) {
 }
 
 /**
- * Record receipt of an income event. For one-time ("once") cadence we just
- * stamp received_at + actual_amount. For recurring cadences we additionally
- * advance next_due_at to the next cycle, mirroring the bill payment flow.
+ * Record receipt of an income event. Three side-effects:
+ *   1. Append a row to income_receipts (history; powers detail screen + YTD).
+ *   2. Update income_events with the latest (actual_amount, received_at) so
+ *      the row-level pair stays in sync with the most recent receipt.
+ *   3. For recurring cadences, advance next_due_at to the next cycle.
  *
- * Two writes — stamp the receipt fields, then (if recurring) advance the
- * cycle. PostgREST runs these as separate transactions; callers should
- * refetch after the await to reconcile if either side fails.
+ * Three writes; callers should refetch after the await.
  */
 export async function markIncomeReceived(
   client: CvcSupabaseClient,
@@ -459,8 +459,17 @@ export async function markIncomeReceived(
     received_at: string;
     cadence: Cadence;
     current_next_due_at: string;
+    transaction_id?: string | null;
   },
 ) {
+  const { error: insErr } = await client.from("income_receipts").insert({
+    income_event_id: args.id,
+    amount: args.actual_amount,
+    received_at: args.received_at,
+    transaction_id: args.transaction_id ?? null,
+  });
+  if (insErr) throw insErr;
+
   const patch: { actual_amount: number; received_at: string; next_due_at?: string } = {
     actual_amount: args.actual_amount,
     received_at: args.received_at,
@@ -476,6 +485,36 @@ export async function markIncomeReceived(
     .single();
   if (error) throw error;
   return data;
+}
+
+/** Pause an income source — flips paused_at to now(); excludes from forecast. */
+export async function pauseIncomeEvent(client: CvcSupabaseClient, id: string) {
+  const { data, error } = await client
+    .from("income_events")
+    .update({ paused_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** Resume a paused income source — clears paused_at. */
+export async function resumeIncomeEvent(client: CvcSupabaseClient, id: string) {
+  const { data, error } = await client
+    .from("income_events")
+    .update({ paused_at: null })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** Delete a single receipt (used by detail screen "delete history entry"). */
+export async function deleteIncomeReceipt(client: CvcSupabaseClient, id: string) {
+  const { error } = await client.from("income_receipts").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function upsertBudget(client: CvcSupabaseClient, budget: BudgetUpsert) {
@@ -603,3 +642,61 @@ export async function replacePaymentLinkCards(
   const { error } = await client.from("payment_link_cards").insert(rows);
   if (error) throw error;
 }
+
+type BillReminderUpsert = Tables['bill_reminders']['Insert'];
+
+export async function upsertBillReminder(
+  client: CvcSupabaseClient,
+  reminder: BillReminderUpsert,
+) {
+  const { data, error } = await client
+    .from('bill_reminders')
+    .upsert(reminder, { onConflict: 'id' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Upsert a single reminder rule for a bill, keyed by (kind, days_before).
+ * Looks up the matching row first; passes its id to upsert so the unique
+ * index doesn't fire a duplicate insert.
+ */
+export async function setBillReminder(
+  client: CvcSupabaseClient,
+  args: {
+    bill_id: string;
+    kind: 'days_before' | 'on_due_date' | 'mute_all';
+    days_before?: number | null;
+    enabled: boolean;
+    time_of_day?: string;
+  },
+) {
+  let q = client
+    .from('bill_reminders')
+    .select('id')
+    .eq('bill_id', args.bill_id)
+    .eq('kind', args.kind);
+  q = args.days_before == null ? q.is('days_before', null) : q.eq('days_before', args.days_before);
+  const { data: existing, error: lookupErr } = await q;
+  if (lookupErr) throw lookupErr;
+  const id = existing?.[0]?.id ?? undefined;
+  const row = {
+    id,
+    bill_id: args.bill_id,
+    kind: args.kind,
+    days_before: args.days_before ?? null,
+    time_of_day: args.time_of_day ?? '09:00',
+    enabled: args.enabled,
+  };
+  const { data, error } = await client.from('bill_reminders').upsert(row).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteBillReminder(client: CvcSupabaseClient, id: string) {
+  const { error } = await client.from('bill_reminders').delete().eq('id', id);
+  if (error) throw error;
+}
+

@@ -225,6 +225,9 @@ function ScenarioForm({
       source: "manual",
       recurring_group_id: null,
       category: null,
+      payee_hue: null,
+      payee_glyph: null,
+      notes: null,
     };
     onSubmit(synthetic);
   };

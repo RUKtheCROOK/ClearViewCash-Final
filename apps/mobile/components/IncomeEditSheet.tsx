@@ -1,13 +1,18 @@
-import { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
-import { HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
+import { useEffect, useMemo, useState } from "react";
+import { Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import Svg, { Path } from "react-native-svg";
 import {
   deleteIncomeEvent,
   markIncomeReceived,
   upsertIncomeEvent,
 } from "@cvc/api-client";
-import type { Cadence, EditableIncome } from "@cvc/types";
+import { incomeLabelForType, INCOME_SOURCE_TYPES } from "@cvc/domain";
+import type { Cadence, EditableIncome, IncomeSourceType } from "@cvc/types";
+import { fonts, type Palette, type ThemeMode } from "@cvc/ui";
+import { useTheme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
+import { IncomeIcon } from "./income/IncomeIcon";
+import { Num, fmtMoneyShort } from "./income/Num";
 
 export type { EditableIncome };
 
@@ -16,7 +21,7 @@ interface Props {
   income: EditableIncome | null;
   spaceId: string | null;
   ownerUserId: string | null;
-  categorySuggestions: string[];
+  categorySuggestions?: string[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -38,8 +43,7 @@ function dayOfMonth(iso: string): number {
   const m = iso.match(/^\d{4}-\d{2}-(\d{2})$/);
   if (!m) return 1;
   const day = Number(m[1]);
-  if (!Number.isFinite(day) || day < 1 || day > 31) return 1;
-  return day;
+  return Number.isFinite(day) && day >= 1 && day <= 31 ? day : 1;
 }
 
 function isValidIsoDate(s: string): boolean {
@@ -59,9 +63,14 @@ export function IncomeEditSheet({
   onClose,
   onSaved,
 }: Props) {
+  const { palette, mode } = useTheme();
   const isNew = !income;
   const [name, setName] = useState("");
+  const [sourceType, setSourceType] = useState<IncomeSourceType>("paycheck");
   const [amountStr, setAmountStr] = useState("");
+  const [lowStr, setLowStr] = useState("");
+  const [highStr, setHighStr] = useState("");
+  const [variable, setVariable] = useState(false);
   const [cadence, setCadence] = useState<Cadence>("monthly");
   const [nextDueAt, setNextDueAt] = useState("");
   const [actualStr, setActualStr] = useState("");
@@ -77,7 +86,12 @@ export function IncomeEditSheet({
     setError(null);
     if (income) {
       setName(income.name);
+      setSourceType(income.source_type);
       setAmountStr(centsToDollarStr(income.amount));
+      const isVar = income.amount_low != null && income.amount_high != null;
+      setVariable(isVar);
+      setLowStr(income.amount_low != null ? centsToDollarStr(income.amount_low) : "");
+      setHighStr(income.amount_high != null ? centsToDollarStr(income.amount_high) : "");
       setCadence(income.cadence);
       setNextDueAt(income.next_due_at);
       setActualStr(centsToDollarStr(income.actual_amount ?? income.amount));
@@ -85,7 +99,11 @@ export function IncomeEditSheet({
       setCategory(income.category ?? "");
     } else {
       setName("");
+      setSourceType("paycheck");
       setAmountStr("");
+      setLowStr("");
+      setHighStr("");
+      setVariable(false);
       setCadence("monthly");
       setNextDueAt("");
       setActualStr("");
@@ -93,6 +111,22 @@ export function IncomeEditSheet({
       setCategory("");
     }
   }, [visible, income]);
+
+  const isOnceReceived = !!income && income.cadence === "once" && income.received_at !== null;
+  const variance = income && income.actual_amount !== null ? income.actual_amount - income.amount : null;
+
+  const previewAmount = useMemo(() => {
+    if (variable) {
+      const lo = dollarsToCents(lowStr);
+      const hi = dollarsToCents(highStr);
+      if (Number.isFinite(lo) && lo > 0 && Number.isFinite(hi) && hi > 0) {
+        return `${fmtMoneyShort(lo)}–${fmtMoneyShort(hi)}`;
+      }
+      return null;
+    }
+    const c = dollarsToCents(amountStr);
+    return Number.isFinite(c) && c > 0 ? fmtMoneyShort(c) : null;
+  }, [variable, amountStr, lowStr, highStr]);
 
   async function save() {
     if (!spaceId || !ownerUserId) {
@@ -103,10 +137,27 @@ export function IncomeEditSheet({
       setError("Name is required.");
       return;
     }
-    const cents = dollarsToCents(amountStr);
-    if (!Number.isFinite(cents) || cents <= 0) {
-      setError("Enter a valid amount.");
-      return;
+    let amountCents: number;
+    let lowCents: number | null = null;
+    let highCents: number | null = null;
+    if (variable) {
+      lowCents = dollarsToCents(lowStr);
+      highCents = dollarsToCents(highStr);
+      if (!Number.isFinite(lowCents) || lowCents <= 0 || !Number.isFinite(highCents) || highCents <= 0) {
+        setError("Enter a valid range.");
+        return;
+      }
+      if (lowCents > highCents) {
+        setError("Low must be ≤ high.");
+        return;
+      }
+      amountCents = Math.round((lowCents + highCents) / 2);
+    } else {
+      amountCents = dollarsToCents(amountStr);
+      if (!Number.isFinite(amountCents) || amountCents <= 0) {
+        setError("Enter a valid amount.");
+        return;
+      }
     }
     if (!isValidIsoDate(nextDueAt)) {
       setError("Date must be YYYY-MM-DD.");
@@ -120,13 +171,17 @@ export function IncomeEditSheet({
         space_id: spaceId,
         owner_user_id: ownerUserId,
         name: name.trim(),
-        amount: cents,
+        amount: amountCents,
+        amount_low: lowCents,
+        amount_high: highCents,
+        source_type: sourceType,
         cadence,
         next_due_at: nextDueAt,
         autopay: false,
         due_day: dayOfMonth(nextDueAt),
         source: income?.source ?? "manual",
         category: category.trim() || null,
+        linked_account_id: income?.linked_account_id ?? null,
       });
       onSaved();
       onClose();
@@ -182,10 +237,6 @@ export function IncomeEditSheet({
     }
   }
 
-  const isOnceReceived = !!income && income.cadence === "once" && income.received_at !== null;
-  const variance =
-    income && income.actual_amount !== null ? income.actual_amount - income.amount : null;
-
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable
@@ -195,73 +246,125 @@ export function IncomeEditSheet({
         <Pressable
           onPress={(e) => e.stopPropagation()}
           style={{
-            backgroundColor: colors.bg,
-            borderTopLeftRadius: radius.lg,
-            borderTopRightRadius: radius.lg,
-            padding: space.lg,
-            maxHeight: "90%",
+            backgroundColor: palette.canvas,
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 24,
+            maxHeight: "92%",
           }}
         >
           <ScrollView keyboardShouldPersistTaps="handled">
-            <Stack gap="md">
-              <Text variant="title">{isNew ? "Add income" : "Edit income"}</Text>
+            <View style={{ gap: 14 }}>
+              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 18, fontWeight: "500", color: palette.ink1 }}>
+                {isNew ? "Add income" : "Edit income"}
+              </Text>
 
-              <Stack gap="sm">
-                <Text variant="muted" style={{ fontSize: 12 }}>Source name</Text>
-                <TextInput
+              {/* Source type */}
+              <Field label="Source type" palette={palette}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                  {INCOME_SOURCE_TYPES.map((t) => {
+                    const selected = sourceType === t;
+                    return (
+                      <Pressable
+                        key={t}
+                        onPress={() => setSourceType(t)}
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: selected ? palette.pos : palette.line,
+                          backgroundColor: selected ? palette.posTint : palette.surface,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <IncomeIcon sourceType={t} mode={mode} size={20} radius={6} />
+                        <Text
+                          style={{
+                            fontFamily: fonts.uiMedium,
+                            fontSize: 12,
+                            fontWeight: selected ? "600" : "500",
+                            color: selected ? palette.pos : palette.ink2,
+                          }}
+                        >
+                          {incomeLabelForType(t)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Field>
+
+              <Field label="Source name" palette={palette}>
+                <Input
                   value={name}
                   onChangeText={setName}
                   placeholder="e.g. Acme Payroll"
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: radius.md,
-                    padding: space.md,
-                    backgroundColor: colors.surface,
-                  }}
+                  palette={palette}
                 />
-              </Stack>
+              </Field>
 
-              <Stack gap="sm">
-                <Text variant="muted" style={{ fontSize: 12 }}>Expected amount (USD)</Text>
-                <TextInput
-                  value={amountStr}
-                  onChangeText={setAmountStr}
-                  placeholder="0.00"
-                  keyboardType="decimal-pad"
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: radius.md,
-                    padding: space.md,
-                    backgroundColor: colors.surface,
-                  }}
-                />
-              </Stack>
+              {/* Amount mode toggle */}
+              <View style={{ flexDirection: "row", padding: 3, borderRadius: 999, backgroundColor: palette.tinted, alignSelf: "flex-start" }}>
+                {([false, true] as const).map((v) => {
+                  const active = variable === v;
+                  return (
+                    <Pressable
+                      key={String(v)}
+                      onPress={() => setVariable(v)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        backgroundColor: active ? palette.surface : "transparent",
+                      }}
+                    >
+                      <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12, fontWeight: "500", color: active ? palette.ink1 : palette.ink2 }}>
+                        {v ? "Range" : "Fixed"}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
-              <Stack gap="sm">
-                <Text variant="muted" style={{ fontSize: 12 }}>
-                  {cadence === "once" ? "Date received expected" : "Next expected date"}
+              {variable ? (
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <Field label="Low" palette={palette} style={{ flex: 1 }}>
+                    <Input value={lowStr} onChangeText={setLowStr} placeholder="0" keyboardType="decimal-pad" palette={palette} />
+                  </Field>
+                  <Field label="High" palette={palette} style={{ flex: 1 }}>
+                    <Input value={highStr} onChangeText={setHighStr} placeholder="0" keyboardType="decimal-pad" palette={palette} />
+                  </Field>
+                </View>
+              ) : (
+                <Field label="Expected amount (USD)" palette={palette}>
+                  <Input value={amountStr} onChangeText={setAmountStr} placeholder="0.00" keyboardType="decimal-pad" palette={palette} />
+                </Field>
+              )}
+
+              {previewAmount ? (
+                <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>
+                  Forecast point: <Num style={{ color: palette.ink2 }}>{previewAmount}</Num>
                 </Text>
-                <TextInput
+              ) : null}
+
+              <Field label={cadence === "once" ? "Date received expected" : "Next expected date"} palette={palette}>
+                <Input
                   value={nextDueAt}
                   onChangeText={setNextDueAt}
                   placeholder="YYYY-MM-DD"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: radius.md,
-                    padding: space.md,
-                    backgroundColor: colors.surface,
-                  }}
+                  palette={palette}
                 />
-              </Stack>
+              </Field>
 
-              <Stack gap="sm">
-                <Text variant="muted" style={{ fontSize: 12 }}>Cadence</Text>
-                <HStack gap="sm" style={{ flexWrap: "wrap" }}>
+              <Field label="Cadence" palette={palette}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                   {CADENCES.map((c) => {
                     const selected = cadence === c;
                     return (
@@ -269,19 +372,20 @@ export function IncomeEditSheet({
                         key={c}
                         onPress={() => setCadence(c)}
                         style={{
-                          paddingHorizontal: space.md,
-                          paddingVertical: space.sm,
-                          borderRadius: radius.pill,
+                          paddingHorizontal: 12,
+                          paddingVertical: 7,
+                          borderRadius: 999,
                           borderWidth: 1,
-                          borderColor: selected ? colors.primary : colors.border,
-                          backgroundColor: selected ? colors.primary : colors.surface,
+                          borderColor: selected ? palette.brand : palette.line,
+                          backgroundColor: selected ? palette.brand : palette.surface,
                         }}
                       >
                         <Text
                           style={{
-                            color: selected ? "#fff" : colors.text,
+                            fontFamily: fonts.uiMedium,
+                            color: selected ? palette.brandOn : palette.ink2,
                             fontSize: 12,
-                            fontWeight: selected ? "600" : "400",
+                            fontWeight: selected ? "600" : "500",
                           }}
                         >
                           {c === "once" ? "one-time" : c}
@@ -289,192 +393,218 @@ export function IncomeEditSheet({
                       </Pressable>
                     );
                   })}
-                </HStack>
-              </Stack>
+                </View>
+              </Field>
 
-              <Stack gap="sm">
-                <Text variant="muted" style={{ fontSize: 12 }}>Category</Text>
-                <TextInput
-                  value={category}
-                  onChangeText={setCategory}
-                  placeholder="e.g. Income"
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: radius.md,
-                    padding: space.md,
-                    backgroundColor: colors.surface,
-                  }}
-                />
-                {categorySuggestions.length ? (
-                  <HStack gap="sm" style={{ flexWrap: "wrap" }}>
-                    {categorySuggestions.slice(0, 12).map((c) => {
+              <Field label="Category" palette={palette}>
+                <Input value={category} onChangeText={setCategory} placeholder="e.g. Salary" palette={palette} />
+                {categorySuggestions && categorySuggestions.length > 0 ? (
+                  <View style={{ marginTop: 6, flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                    {categorySuggestions.slice(0, 8).map((c) => {
                       const selected = category === c;
                       return (
                         <Pressable
                           key={c}
                           onPress={() => setCategory(c)}
                           style={{
-                            paddingHorizontal: space.md,
-                            paddingVertical: space.sm,
-                            borderRadius: radius.pill,
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 999,
                             borderWidth: 1,
-                            borderColor: selected ? colors.primary : colors.border,
-                            backgroundColor: selected ? colors.primary : colors.surface,
+                            borderColor: selected ? palette.brand : palette.line,
+                            backgroundColor: selected ? palette.brandTint : palette.surface,
                           }}
                         >
-                          <Text
-                            style={{
-                              color: selected ? "#fff" : colors.text,
-                              fontSize: 12,
-                              fontWeight: selected ? "600" : "400",
-                            }}
-                          >
-                            {c}
-                          </Text>
+                          <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: selected ? palette.brand : palette.ink2 }}>{c}</Text>
                         </Pressable>
                       );
                     })}
-                  </HStack>
+                  </View>
                 ) : null}
-              </Stack>
+              </Field>
 
+              {/* Mark received (edit mode only) */}
               {!isNew ? (
-                <Stack gap="sm">
-                  <Text variant="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                <View style={{ gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: palette.line }}>
+                  <Text style={{ fontFamily: fonts.uiMedium, fontSize: 11, fontWeight: "600", color: palette.ink2, textTransform: "uppercase", letterSpacing: 0.5 }}>
                     {isOnceReceived ? "Received" : "Mark received"}
                   </Text>
                   {isOnceReceived ? (
                     <View
                       style={{
-                        padding: space.md,
-                        borderRadius: radius.md,
-                        backgroundColor: colors.surface,
+                        paddingHorizontal: 12,
+                        paddingVertical: 12,
+                        borderRadius: 12,
+                        backgroundColor: palette.surface,
                         borderWidth: 1,
-                        borderColor: colors.border,
+                        borderColor: palette.line,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
                       }}
                     >
-                      <HStack justify="space-between" align="center">
-                        <Stack gap="xs">
-                          <Text style={{ fontSize: 13 }}>{income!.received_at}</Text>
-                          {variance !== null && variance !== 0 ? (
-                            <Text variant="muted" style={{ fontSize: 11 }}>
-                              {variance > 0 ? "+" : ""}
-                              {centsToDollarStr(variance)} vs expected
-                            </Text>
-                          ) : null}
-                        </Stack>
-                        <Money cents={income!.actual_amount ?? 0} positiveColor />
-                      </HStack>
+                      <View>
+                        <Text style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink1 }}>{income!.received_at}</Text>
+                        {variance !== null && variance !== 0 ? (
+                          <Text style={{ fontFamily: fonts.ui, fontSize: 11, color: palette.ink3 }}>
+                            {variance > 0 ? "+" : ""}
+                            {centsToDollarStr(variance)} vs expected
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Num style={{ color: palette.pos, fontWeight: "600" }}>${centsToDollarStr(income!.actual_amount ?? 0)}</Num>
                     </View>
                   ) : (
                     <>
-                      <Stack gap="sm">
-                        <Text variant="muted" style={{ fontSize: 12 }}>Actual amount (USD)</Text>
-                        <TextInput
-                          value={actualStr}
-                          onChangeText={setActualStr}
-                          placeholder="0.00"
-                          keyboardType="decimal-pad"
-                          style={{
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            borderRadius: radius.md,
-                            padding: space.md,
-                            backgroundColor: colors.surface,
-                          }}
-                        />
-                      </Stack>
-                      <Stack gap="sm">
-                        <Text variant="muted" style={{ fontSize: 12 }}>Received on</Text>
-                        <TextInput
-                          value={receivedAt}
-                          onChangeText={setReceivedAt}
-                          placeholder="YYYY-MM-DD"
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          style={{
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                            borderRadius: radius.md,
-                            padding: space.md,
-                            backgroundColor: colors.surface,
-                          }}
-                        />
-                      </Stack>
+                      <Field label="Actual amount (USD)" palette={palette}>
+                        <Input value={actualStr} onChangeText={setActualStr} placeholder="0.00" keyboardType="decimal-pad" palette={palette} />
+                      </Field>
+                      <Field label="Received on" palette={palette}>
+                        <Input value={receivedAt} onChangeText={setReceivedAt} placeholder="YYYY-MM-DD" autoCapitalize="none" autoCorrect={false} palette={palette} />
+                      </Field>
                       <Pressable
                         onPress={markReceived}
                         disabled={marking}
-                        style={{
-                          padding: space.md,
-                          borderRadius: radius.md,
-                          backgroundColor: marking ? colors.textMuted : colors.positive,
+                        style={({ pressed }) => ({
+                          height: 44,
+                          borderRadius: 12,
+                          backgroundColor: marking ? palette.lineFirm : palette.pos,
                           alignItems: "center",
-                        }}
+                          justifyContent: "center",
+                          opacity: pressed ? 0.9 : 1,
+                        })}
                       >
-                        <Text style={{ color: "#fff", fontWeight: "600" }}>
+                        <Text style={{ fontFamily: fonts.uiMedium, color: "#fff", fontWeight: "600" }}>
                           {marking ? "Saving…" : "Mark received"}
                         </Text>
                       </Pressable>
                     </>
                   )}
-                </Stack>
+                </View>
               ) : null}
 
-              {error ? <Text style={{ color: colors.negative }}>{error}</Text> : null}
+              {error ? <Text style={{ fontFamily: fonts.ui, color: palette.neg, fontSize: 12 }}>{error}</Text> : null}
 
-              <HStack gap="sm">
+              <View style={{ flexDirection: "row", gap: 8 }}>
                 <Pressable
                   onPress={onClose}
-                  style={{
+                  style={({ pressed }) => ({
                     flex: 1,
-                    padding: space.md,
-                    borderRadius: radius.md,
+                    height: 46,
+                    borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: palette.line,
                     alignItems: "center",
-                  }}
+                    justifyContent: "center",
+                    opacity: pressed ? 0.85 : 1,
+                  })}
                 >
-                  <Text>Cancel</Text>
+                  <Text style={{ fontFamily: fonts.uiMedium, color: palette.ink2 }}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   onPress={save}
                   disabled={saving}
-                  style={{
+                  style={({ pressed }) => ({
                     flex: 1,
-                    padding: space.md,
-                    borderRadius: radius.md,
-                    backgroundColor: saving ? colors.textMuted : colors.primary,
+                    height: 46,
+                    borderRadius: 12,
+                    backgroundColor: saving ? palette.lineFirm : palette.brand,
                     alignItems: "center",
-                  }}
+                    justifyContent: "center",
+                    opacity: pressed ? 0.9 : 1,
+                  })}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "600" }}>
+                  <Text style={{ fontFamily: fonts.uiMedium, color: palette.brandOn, fontWeight: "600" }}>
                     {saving ? "Saving…" : isNew ? "Create" : "Save"}
                   </Text>
                 </Pressable>
-              </HStack>
+              </View>
 
               {!isNew ? (
                 <Pressable
                   onPress={remove}
                   disabled={deleting}
-                  style={{
-                    padding: space.md,
-                    borderRadius: radius.md,
+                  style={({ pressed }) => ({
+                    height: 46,
+                    borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: colors.negative,
+                    borderColor: palette.lineFirm,
                     alignItems: "center",
-                  }}
+                    justifyContent: "center",
+                    flexDirection: "row",
+                    gap: 6,
+                    opacity: pressed ? 0.85 : 1,
+                  })}
                 >
-                  <Text style={{ color: colors.negative, fontWeight: "600" }}>
+                  <Svg width={14} height={14} viewBox="0 0 24 24">
+                    <Path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" fill="none" stroke={palette.warn} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                  <Text style={{ fontFamily: fonts.uiMedium, color: palette.warn, fontWeight: "600" }}>
                     {deleting ? "Deleting…" : "Delete income"}
                   </Text>
                 </Pressable>
               ) : null}
-            </Stack>
+            </View>
           </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+function Field({
+  label,
+  children,
+  palette,
+  style,
+}: {
+  label: string;
+  children: React.ReactNode;
+  palette: Palette;
+  style?: object;
+}) {
+  return (
+    <View style={style}>
+      <Text
+        style={{
+          fontFamily: fonts.uiMedium,
+          fontSize: 11,
+          fontWeight: "600",
+          color: palette.ink2,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </Text>
+      {children}
+    </View>
+  );
+}
+
+function Input({
+  palette,
+  ...rest
+}: React.ComponentProps<typeof TextInput> & { palette: Palette }) {
+  return (
+    <TextInput
+      placeholderTextColor={palette.ink4}
+      {...rest}
+      style={[
+        {
+          paddingHorizontal: 12,
+          height: 44,
+          borderRadius: 12,
+          backgroundColor: palette.surface,
+          borderWidth: 1,
+          borderColor: palette.lineFirm,
+          fontFamily: fonts.ui,
+          fontSize: 14,
+          color: palette.ink1,
+        },
+        rest.style,
+      ]}
+    />
   );
 }

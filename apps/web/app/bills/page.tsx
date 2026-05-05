@@ -1,20 +1,31 @@
 "use client";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@cvc/types/supabase.generated";
 import {
+  getAccountsForView,
   getBillsWithLatestPayment,
   getMySpaces,
   getTransactionsForView,
   recordBillPayment,
 } from "@cvc/api-client";
-import { CVC_CATEGORIES, computeBillStatus, todayIso, type BillCycleStatus } from "@cvc/domain";
+import {
+  groupBillsByBucket,
+  summariseUpcoming,
+  todayIso,
+  type BillBucket,
+} from "@cvc/domain";
 import type { BillListRow as BillRow } from "@cvc/types";
-import { EditPanel, type EditableBill } from "./EditPanel";
-import { Calendar } from "./Calendar";
-import { SuggestionsBanner } from "../transactions/SuggestionsBanner";
+import { Calendar, type CalendarBill } from "./Calendar";
+import { BillRow as BillRowView, type BillRowData } from "./_components/BillRow";
+import { UpcomingStrip } from "./_components/UpcomingStrip";
+import { GroupHeader } from "./_components/GroupHeader";
+import { ViewToggle, type BillsViewMode } from "./_components/ViewToggle";
+import { BillsSuggestions } from "./_components/BillsSuggestions";
+import { Num, fmtMoneyDollars } from "./_components/Num";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -28,6 +39,14 @@ interface MinimalTxn {
   posted_at: string;
   pending: boolean;
   is_recurring: boolean;
+  account_id: string | null;
+}
+
+interface AccountLite {
+  id: string;
+  name: string;
+  display_name: string | null;
+  mask: string | null;
 }
 
 interface Space {
@@ -36,50 +55,42 @@ interface Space {
   tint: string;
 }
 
-type StatusFilter = "all" | BillCycleStatus;
-type CadenceFilter = "all" | "recurring" | "one_time";
-type AutopayFilter = "all" | "autopay" | "manual";
-type CategoryFilter = "all" | string;
-type ViewMode = "list" | "calendar";
-
-const STATUS_LABEL: Record<BillCycleStatus, string> = {
-  overdue: "Overdue",
-  due_soon: "Due soon",
-  upcoming: "Upcoming",
+const BUCKET_META: Record<BillBucket, { label: string; color: string }> = {
+  overdue: { label: "Overdue", color: "var(--warn)" },
+  this_week: { label: "Due this week", color: "var(--brand)" },
+  later: { label: "Due later this month", color: "var(--ink-3)" },
+  paid: { label: "Paid recently", color: "var(--pos)" },
 };
 
-const STATUS_COLOR: Record<BillCycleStatus, string> = {
-  overdue: "var(--negative, #DC2626)",
-  due_soon: "var(--warning, #F59E0B)",
-  upcoming: "var(--positive, #16A34A)",
-};
+const BUCKET_ORDER: BillBucket[] = ["overdue", "this_week", "later", "paid"];
 
-function fmtMoney(cents: number): string {
-  const sign = cents < 0 ? "-" : "";
-  return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
+function accountLabel(accounts: AccountLite[], id: string | null): string | null {
+  if (!id) return null;
+  const a = accounts.find((x) => x.id === id);
+  if (!a) return null;
+  const name = a.display_name ?? a.name;
+  const short = name.split(/\s+/).slice(0, 2).join(" ");
+  return a.mask ? `${short} ··${a.mask}` : short;
 }
 
 export default function BillsPage() {
   const router = useRouter();
+  const today = todayIso();
   const [authReady, setAuthReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [ownerUserId, setOwnerUserId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
   const [bills, setBills] = useState<BillRow[]>([]);
+  const [accounts, setAccounts] = useState<AccountLite[]>([]);
   const [outflowTxns, setOutflowTxns] = useState<MinimalTxn[]>([]);
-  const [editing, setEditing] = useState<EditableBill | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [cadenceFilter, setCadenceFilter] = useState<CadenceFilter>("all");
-  const [autopayFilter, setAutopayFilter] = useState<AutopayFilter>("all");
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [viewMode, setViewMode] = useState<BillsViewMode>("list");
   const [calendarSelectedIso, setCalendarSelectedIso] = useState<string | null>(null);
   const [reloadCount, setReloadCount] = useState(0);
-  const today = todayIso();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -109,11 +120,21 @@ export default function BillsPage() {
     getBillsWithLatestPayment(supabase, activeSpaceId).then((rows) =>
       setBills(rows as unknown as BillRow[]),
     );
+    getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView: false }).then((rows) => {
+      setAccounts(
+        (rows as Array<{ id: string; name: string; display_name: string | null; mask: string | null }>).map((a) => ({
+          id: a.id,
+          name: a.name,
+          display_name: a.display_name,
+          mask: a.mask,
+        })),
+      );
+    });
     getTransactionsForView(supabase, {
       spaceId: activeSpaceId,
       sharedView: false,
       limit: 200,
-      fields: "id, merchant_name, amount, posted_at, pending, is_recurring",
+      fields: "id, merchant_name, amount, posted_at, pending, is_recurring, account_id",
     }).then((rows) => {
       const minimal = (rows as unknown as MinimalTxn[]).filter((t) => t.amount < 0);
       setOutflowTxns(minimal);
@@ -125,36 +146,37 @@ export default function BillsPage() {
     reload();
   }, [signedIn, reload, reloadCount]);
 
-  const categorySuggestions = useMemo(() => {
-    const set = new Set<string>(CVC_CATEGORIES);
-    for (const b of bills) if (b.category) set.add(b.category);
-    return Array.from(set).sort();
-  }, [bills]);
+  const summary = useMemo(() => summariseUpcoming(bills, today), [bills, today]);
+  const buckets = useMemo(() => groupBillsByBucket(bills, today), [bills, today]);
 
-  const filtered = useMemo(() => {
-    return bills.filter((b) => {
-      const status = computeBillStatus(b.next_due_at, today);
-      if (statusFilter !== "all" && status !== statusFilter) return false;
-      if (cadenceFilter === "recurring" && b.cadence === "custom") return false;
-      if (cadenceFilter === "one_time" && b.cadence !== "custom") return false;
-      if (autopayFilter === "autopay" && !b.autopay) return false;
-      if (autopayFilter === "manual" && b.autopay) return false;
-      if (categoryFilter !== "all" && (b.category ?? "") !== categoryFilter) return false;
-      if (viewMode === "calendar" && calendarSelectedIso && b.next_due_at !== calendarSelectedIso) {
-        return false;
-      }
-      return true;
-    });
-  }, [
-    bills,
-    statusFilter,
-    cadenceFilter,
-    autopayFilter,
-    categoryFilter,
-    viewMode,
-    calendarSelectedIso,
-    today,
-  ]);
+  const calendarBills: CalendarBill[] = useMemo(
+    () =>
+      bills.map((b) => ({
+        id: b.id,
+        next_due_at: b.next_due_at,
+        amount: b.amount,
+        autopay: b.autopay,
+        isOverdue: b.next_due_at < today && !b.latest_payment,
+      })),
+    [bills, today],
+  );
+
+  function billToRowData(b: BillRow): BillRowData {
+    return {
+      id: b.id,
+      name: b.name,
+      amount: b.amount,
+      next_due_at: b.next_due_at,
+      cadence: b.cadence,
+      autopay: b.autopay,
+      category: b.category,
+      payee_hue: (b as unknown as { payee_hue?: number | null }).payee_hue ?? null,
+      payee_glyph: (b as unknown as { payee_glyph?: string | null }).payee_glyph ?? null,
+      source: b.source,
+      recurring_group_id: b.recurring_group_id,
+      latest_payment: b.latest_payment ? { paid_at: b.latest_payment.paid_at, amount: b.latest_payment.amount } : null,
+    };
+  }
 
   async function markPaid(b: BillRow) {
     setBusy(b.id);
@@ -176,46 +198,57 @@ export default function BillsPage() {
   }
 
   function openCreate() {
-    setEditing(null);
-    setPanelOpen(true);
+    router.push("/bills/new");
   }
 
-  function openEdit(b: BillRow) {
-    setEditing({
-      id: b.id,
-      space_id: b.space_id,
-      owner_user_id: b.owner_user_id,
-      name: b.name,
-      amount: b.amount,
-      cadence: b.cadence,
-      next_due_at: b.next_due_at,
-      autopay: b.autopay,
-      source: b.source,
-      recurring_group_id: b.recurring_group_id,
-      category: b.category,
-    });
-    setPanelOpen(true);
+  function openDetail(billId: string) {
+    router.push(`/bills/${billId}`);
   }
+
+  const filterByDay = viewMode === "calendar" && calendarSelectedIso;
+  const dayBills = filterByDay
+    ? bills.filter((b) => b.next_due_at === calendarSelectedIso)
+    : [];
+
+  const searchHits = search.trim()
+    ? bills.filter((b) => b.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : null;
 
   if (!authReady) {
     return (
-      <main className="container" style={{ padding: "40px 0" }}>
-        <p className="muted">Loading…</p>
+      <main style={{ background: "var(--bg-canvas)", minHeight: "100vh", padding: "40px 24px" }}>
+        <p style={{ color: "var(--ink-3)" }}>Loading…</p>
       </main>
     );
   }
 
   if (!signedIn) {
     return (
-      <main className="container" style={{ padding: "80px 0", maxWidth: 460 }}>
-        <h1>Bills</h1>
-        <p className="muted" style={{ marginTop: 16 }}>
-          Sign in to view your bills.
-        </p>
+      <main
+        style={{
+          background: "var(--bg-canvas)",
+          minHeight: "100vh",
+          padding: "80px 24px",
+          maxWidth: 460,
+          margin: "0 auto",
+        }}
+      >
+        <h1 style={{ fontFamily: "var(--font-ui)", fontSize: 28, color: "var(--ink-1)" }}>Bills</h1>
+        <p style={{ color: "var(--ink-3)", marginTop: 16 }}>Sign in to view your bills.</p>
         <button
-          className="btn btn-primary"
-          style={{ marginTop: 16 }}
+          type="button"
           onClick={() => router.push("/sign-in")}
+          style={{
+            marginTop: 16,
+            padding: "10px 16px",
+            background: "var(--brand)",
+            color: "var(--brand-on)",
+            borderRadius: 12,
+            border: 0,
+            cursor: "pointer",
+            fontFamily: "var(--font-ui)",
+            fontWeight: 500,
+          }}
         >
           Sign in
         </button>
@@ -224,248 +257,403 @@ export default function BillsPage() {
   }
 
   return (
-    <main className="container" style={{ padding: "32px 0" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>Bills</h1>
-        <Link href="/" className="muted" style={{ fontSize: 14 }}>
-          ← Home
-        </Link>
-      </div>
-
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-        <label className="muted" style={{ fontSize: 13 }}>Space</label>
-        <select
-          value={activeSpaceId ?? ""}
-          onChange={(e) => {
-            setActiveSpaceId(e.target.value);
-            if (typeof window !== "undefined") localStorage.setItem("cvc-active-space", e.target.value);
-          }}
-          style={selectStyle}
-        >
-          {spaces.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={openCreate}>
-          + Add bill
-        </button>
-      </div>
-
-      <SuggestionsBanner
-        client={supabase}
-        txns={outflowTxns}
-        spaceId={activeSpaceId}
-        onPromoted={() => setReloadCount((c) => c + 1)}
-      />
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <button
-          className={viewMode === "list" ? "btn btn-primary" : "btn btn-secondary"}
-          style={pillBtnStyle}
-          onClick={() => setViewMode("list")}
-        >
-          List
-        </button>
-        <button
-          className={viewMode === "calendar" ? "btn btn-primary" : "btn btn-secondary"}
-          style={pillBtnStyle}
-          onClick={() => setViewMode("calendar")}
-        >
-          Calendar
-        </button>
-      </div>
-
-      {viewMode === "calendar" ? (
-        <div style={{ marginBottom: 16 }}>
-          <Calendar
-            bills={bills.map((b) => ({ id: b.id, next_due_at: b.next_due_at }))}
-            todayIso={today}
-            selectedIso={calendarSelectedIso}
-            onSelectDay={setCalendarSelectedIso}
-          />
+    <main
+      style={{
+        background: "var(--bg-canvas)",
+        minHeight: "100vh",
+        paddingBottom: 80,
+      }}
+    >
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        {/* Header */}
+        <div style={{ padding: "14px 16px 8px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <h1
+              style={{
+                margin: 0,
+                fontFamily: "var(--font-ui)",
+                fontSize: 28,
+                fontWeight: 500,
+                letterSpacing: "-0.02em",
+                color: "var(--ink-1)",
+                lineHeight: 1.1,
+              }}
+            >
+              Bills
+            </h1>
+            {spaces.length > 1 ? (
+              <SpaceSelect
+                spaces={spaces}
+                activeSpaceId={activeSpaceId}
+                onChange={(id) => {
+                  setActiveSpaceId(id);
+                  if (typeof window !== "undefined") localStorage.setItem("cvc-active-space", id);
+                }}
+              />
+            ) : null}
+          </div>
+          <Link
+            href="/"
+            style={{
+              fontFamily: "var(--font-ui)",
+              fontSize: 12,
+              color: "var(--ink-3)",
+              alignSelf: "flex-start",
+              padding: "8px 0",
+            }}
+          >
+            ← Home
+          </Link>
+          <button
+            type="button"
+            onClick={openCreate}
+            aria-label="Add bill"
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 999,
+              background: "var(--brand)",
+              color: "var(--brand-on)",
+              border: 0,
+              cursor: "pointer",
+              display: "grid",
+              placeItems: "center",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+            }}
+          >
+            <PlusIcon />
+          </button>
         </div>
-      ) : null}
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-        {(["all", "overdue", "due_soon", "upcoming"] as StatusFilter[]).map((s) => (
+        {/* View toggle + search */}
+        <div style={{ padding: "4px 16px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+          <ViewToggle value={viewMode} onChange={setViewMode} />
+          <div style={{ flex: 1 }} />
           <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            className={statusFilter === s ? "btn btn-primary" : "btn btn-secondary"}
-            style={pillBtnStyle}
+            type="button"
+            onClick={() => setSearchOpen((s) => !s)}
+            aria-label="Search bills"
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 999,
+              background: searchOpen ? "var(--brand-tint)" : "var(--bg-tinted)",
+              color: searchOpen ? "var(--brand)" : "var(--ink-2)",
+              border: 0,
+              cursor: "pointer",
+              display: "grid",
+              placeItems: "center",
+            }}
           >
-            {s === "all" ? "All" : STATUS_LABEL[s as BillCycleStatus]}
+            <SearchIcon />
           </button>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-        {(["all", "recurring", "one_time"] as CadenceFilter[]).map((c) => (
-          <button
-            key={c}
-            onClick={() => setCadenceFilter(c)}
-            className={cadenceFilter === c ? "btn btn-primary" : "btn btn-secondary"}
-            style={pillBtnStyle}
-          >
-            {c === "all" ? "All cadences" : c === "one_time" ? "One-time" : "Recurring"}
-          </button>
-        ))}
-        <button
-          onClick={() => setAutopayFilter(autopayFilter === "autopay" ? "all" : "autopay")}
-          className={autopayFilter === "autopay" ? "btn btn-primary" : "btn btn-secondary"}
-          style={pillBtnStyle}
-        >
-          Autopay
-        </button>
-        <button
-          onClick={() => setAutopayFilter(autopayFilter === "manual" ? "all" : "manual")}
-          className={autopayFilter === "manual" ? "btn btn-primary" : "btn btn-secondary"}
-          style={pillBtnStyle}
-        >
-          Manual
-        </button>
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-        <span className="muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Category
-        </span>
-        <button
-          onClick={() => setCategoryFilter("all")}
-          className={categoryFilter === "all" ? "btn btn-primary" : "btn btn-secondary"}
-          style={pillBtnStyle}
-        >
-          All
-        </button>
-        {categorySuggestions.map((c) => (
-          <button
-            key={c}
-            onClick={() => setCategoryFilter(categoryFilter === c ? "all" : c)}
-            className={categoryFilter === c ? "btn btn-primary" : "btn btn-secondary"}
-            style={pillBtnStyle}
-          >
-            {c}
-          </button>
-        ))}
-      </div>
+        </div>
 
-      {error ? <p style={{ color: "var(--negative, #DC2626)" }}>{error}</p> : null}
+        {searchOpen ? (
+          <div style={{ padding: "0 16px 14px" }}>
+            <input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search bills by name…"
+              style={{
+                width: "100%",
+                height: 44,
+                padding: "0 14px",
+                borderRadius: 12,
+                background: "var(--bg-surface)",
+                border: "1px solid var(--line-firm)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 14,
+                color: "var(--ink-1)",
+                outline: "none",
+              }}
+            />
+          </div>
+        ) : null}
 
-      <div className="card" style={{ padding: 0 }}>
-        {filtered.length === 0 ? (
-          <p className="muted" style={{ padding: 24, margin: 0 }}>
-            {bills.length === 0
-              ? "No bills yet. Click Add bill to create one or let us detect them from transactions."
-              : "No bills match the current filters."}
-          </p>
-        ) : (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {filtered.map((b) => {
-              const status = computeBillStatus(b.next_due_at, today);
-              const isPaying = busy === b.id;
-              return (
-                <li
-                  key={b.id}
-                  onClick={() => openEdit(b)}
+        {/* Upcoming summary */}
+        <UpcomingStrip summary={summary} />
+
+        {/* Recurring detection (compact, on list view only) */}
+        {viewMode === "list" && !searchHits ? (
+          <BillsSuggestions
+            client={supabase}
+            txns={outflowTxns}
+            accounts={accounts}
+            spaceId={activeSpaceId}
+            ownerUserId={ownerUserId}
+            limit={1}
+            onPromoted={() => setReloadCount((c) => c + 1)}
+          />
+        ) : null}
+
+        {error ? (
+          <p style={{ color: "var(--neg)", padding: "0 16px 8px", fontSize: 12 }}>{error}</p>
+        ) : null}
+
+        {/* Calendar mode */}
+        {viewMode === "calendar" ? (
+          <>
+            <Calendar
+              bills={calendarBills}
+              todayIso={today}
+              selectedIso={calendarSelectedIso}
+              onSelectDay={setCalendarSelectedIso}
+            />
+            {calendarSelectedIso ? (
+              <DayPanel
+                iso={calendarSelectedIso}
+                bills={dayBills}
+                accounts={accounts}
+                today={today}
+                onOpen={openDetail}
+                onMarkPaid={markPaid}
+                busy={busy}
+                billToRowData={billToRowData}
+              />
+            ) : (
+              <p style={{ padding: "16px 18px", color: "var(--ink-3)", fontSize: 12.5 }}>
+                Pick a day to see what&apos;s due.
+              </p>
+            )}
+          </>
+        ) : null}
+
+        {/* List mode */}
+        {viewMode === "list" ? (
+          searchHits ? (
+            <Section
+              header={`Search · ${searchHits.length} ${searchHits.length === 1 ? "match" : "matches"}`}
+              color="var(--ink-3)"
+              total={searchHits.reduce((s, b) => s + b.amount, 0)}
+              count={searchHits.length}
+            >
+              {searchHits.length === 0 ? (
+                <Empty text={`No bills match “${search}”.`} />
+              ) : (
+                searchHits.map((b) => (
+                  <BillRowView
+                    key={b.id}
+                    bill={billToRowData(b)}
+                    bucket={buckets.overdue.includes(b) ? "overdue" : buckets.this_week.includes(b) ? "this_week" : buckets.paid.includes(b) ? "paid" : "later"}
+                    todayIso={today}
+                    accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
+                    onClick={() => openDetail(b.id)}
+                    onMarkPaid={() => markPaid(b)}
+                    paying={busy === b.id}
+                  />
+                ))
+              )}
+            </Section>
+          ) : bills.length === 0 ? (
+            <div
+              style={{
+                margin: "10px 16px",
+                padding: 24,
+                borderRadius: 14,
+                background: "var(--bg-surface)",
+                border: "1px solid var(--line-soft)",
+                textAlign: "center",
+              }}
+            >
+              <p style={{ margin: 0, color: "var(--ink-2)", fontSize: 14 }}>
+                No bills yet. Tap{" "}
+                <span
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
+                    display: "inline-flex",
                     alignItems: "center",
-                    padding: "16px 20px",
-                    borderBottom: "1px solid var(--border)",
-                    cursor: "pointer",
-                    gap: 16,
+                    justifyContent: "center",
+                    width: 18,
+                    height: 18,
+                    borderRadius: 999,
+                    background: "var(--brand)",
+                    color: "var(--brand-on)",
+                    verticalAlign: "middle",
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600 }}>{b.name}</div>
-                    <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>
-                      Due {b.next_due_at} · {b.cadence}
-                      {b.autopay ? " · autopay" : ""}
-                      {b.source === "detected" ? " · auto-detected" : ""}
-                    </div>
-                    {b.category ? (
-                      <span
-                        className="muted"
-                        style={{
-                          display: "inline-block",
-                          marginTop: 4,
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          border: "1px solid var(--border)",
-                          background: "var(--surface)",
-                          fontSize: 11,
-                        }}
-                      >
-                        {b.category}
-                      </span>
-                    ) : null}
-                    {b.latest_payment ? (
-                      <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                        Last paid {b.latest_payment.paid_at}
-                      </div>
-                    ) : null}
-                  </div>
-                  <span
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 999,
-                      background: STATUS_COLOR[status],
-                      color: "#fff",
-                      fontSize: 11,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {STATUS_LABEL[status]}
-                  </span>
-                  <span style={{ fontWeight: 600 }}>{fmtMoney(b.amount)}</span>
-                  <button
-                    className="btn btn-primary"
-                    style={{ padding: "8px 14px", fontSize: 13 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      markPaid(b);
-                    }}
-                    disabled={isPaying}
-                  >
-                    {isPaying ? "Saving…" : "Mark paid"}
-                  </button>
-                </li>
+                  <PlusIcon size={11} />
+                </span>{" "}
+                to add one, or wait for us to detect repeat charges.
+              </p>
+            </div>
+          ) : (
+            BUCKET_ORDER.map((bucket) => {
+              const items = buckets[bucket];
+              if (items.length === 0) return null;
+              const total = items.reduce((s, b) => s + b.amount, 0);
+              const meta = BUCKET_META[bucket];
+              return (
+                <Section key={bucket} header={meta.label} color={meta.color} total={total} count={items.length}>
+                  {items.map((b) => (
+                    <BillRowView
+                      key={b.id}
+                      bill={billToRowData(b)}
+                      bucket={bucket}
+                      todayIso={today}
+                      accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
+                      onClick={() => openDetail(b.id)}
+                      onMarkPaid={bucket === "paid" ? undefined : () => markPaid(b)}
+                      paying={busy === b.id}
+                    />
+                  ))}
+                </Section>
               );
-            })}
-          </ul>
-        )}
+            })
+          )
+        ) : null}
       </div>
-
-      <EditPanel
-        client={supabase}
-        bill={editing}
-        open={panelOpen}
-        spaceId={activeSpaceId}
-        ownerUserId={ownerUserId}
-        categorySuggestions={categorySuggestions}
-        onClose={() => setPanelOpen(false)}
-        onSaved={() => setReloadCount((c) => c + 1)}
-      />
     </main>
   );
 }
 
-const pillBtnStyle: React.CSSProperties = {
-  padding: "6px 14px",
-  fontSize: 13,
-};
+function Section({
+  header,
+  color,
+  total,
+  count,
+  children,
+}: {
+  header: string;
+  color: string;
+  total: number;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <GroupHeader label={header} count={count} totalCents={total} color={color} />
+      <div
+        style={{
+          background: "var(--bg-surface)",
+          borderTop: "1px solid var(--line-soft)",
+          borderBottom: "1px solid var(--line-soft)",
+        }}
+      >
+        {children}
+      </div>
+    </>
+  );
+}
 
-const inputStyle: React.CSSProperties = {
-  border: "1px solid var(--border)",
-  borderRadius: 10,
-  padding: "10px 12px",
-  fontSize: 15,
-  background: "var(--surface)",
-  color: "var(--text)",
-};
+function Empty({ text }: { text: string }) {
+  return (
+    <p style={{ padding: 24, margin: 0, color: "var(--ink-3)", fontSize: 13 }}>{text}</p>
+  );
+}
 
-const selectStyle: React.CSSProperties = {
-  ...inputStyle,
-  padding: "8px 10px",
-};
+function DayPanel({
+  iso,
+  bills,
+  accounts,
+  today,
+  onOpen,
+  onMarkPaid,
+  busy,
+  billToRowData,
+}: {
+  iso: string;
+  bills: BillRow[];
+  accounts: AccountLite[];
+  today: string;
+  onOpen: (id: string) => void;
+  onMarkPaid: (b: BillRow) => void;
+  busy: string | null;
+  billToRowData: (b: BillRow) => BillRowData;
+}) {
+  const total = bills.reduce((s, b) => s + b.amount, 0);
+  const date = new Date(`${iso}T00:00:00`);
+  const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const label = `${weekdays[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ padding: "4px 18px 8px", display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontFamily: "var(--font-ui)", fontSize: 13, fontWeight: 600, color: "var(--ink-1)" }}>
+          {label}
+        </span>
+        <span style={{ fontFamily: "var(--font-num)", fontSize: 11, color: "var(--ink-3)" }}>
+          {bills.length} {bills.length === 1 ? "bill" : "bills"}
+        </span>
+        <span style={{ marginLeft: "auto" }}>
+          <Num style={{ fontSize: 12, color: "var(--ink-2)" }}>{fmtMoneyDollars(total)}</Num>
+        </span>
+      </div>
+      <div
+        style={{
+          background: "var(--bg-surface)",
+          borderTop: "1px solid var(--line-soft)",
+          borderBottom: "1px solid var(--line-soft)",
+        }}
+      >
+        {bills.length === 0 ? (
+          <p style={{ padding: 18, margin: 0, color: "var(--ink-3)", fontSize: 13 }}>Nothing due that day.</p>
+        ) : (
+          bills.map((b) => (
+            <BillRowView
+              key={b.id}
+              bill={billToRowData(b)}
+              bucket={b.next_due_at < today ? "overdue" : "this_week"}
+              todayIso={today}
+              accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
+              onClick={() => onOpen(b.id)}
+              onMarkPaid={() => onMarkPaid(b)}
+              paying={busy === b.id}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SpaceSelect({
+  spaces,
+  activeSpaceId,
+  onChange,
+}: {
+  spaces: Space[];
+  activeSpaceId: string | null;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div style={{ marginTop: 4 }}>
+      <select
+        value={activeSpaceId ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          fontFamily: "var(--font-ui)",
+          fontSize: 12,
+          color: "var(--ink-3)",
+          background: "transparent",
+          border: 0,
+          padding: 0,
+          cursor: "pointer",
+        }}
+      >
+        {spaces.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function PlusIcon({ size = 18 }: { size?: number } = {}) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx={11} cy={11} r={7} />
+      <path d="M21 21l-4.3-4.3" />
+    </svg>
+  );
+}

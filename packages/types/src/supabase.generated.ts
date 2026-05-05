@@ -117,9 +117,11 @@ export type Database = {
       accounts: {
         Row: {
           available_balance: number | null
+          color: string | null
           created_at: string
           currency: string
           current_balance: number | null
+          display_name: string | null
           id: string
           last_synced_at: string | null
           mask: string | null
@@ -133,9 +135,11 @@ export type Database = {
         }
         Insert: {
           available_balance?: number | null
+          color?: string | null
           created_at?: string
           currency?: string
           current_balance?: number | null
+          display_name?: string | null
           id?: string
           last_synced_at?: string | null
           mask?: string | null
@@ -149,9 +153,11 @@ export type Database = {
         }
         Update: {
           available_balance?: number | null
+          color?: string | null
           created_at?: string
           currency?: string
           current_balance?: number | null
+          display_name?: string | null
           id?: string
           last_synced_at?: string | null
           mask?: string | null
@@ -176,6 +182,48 @@ export type Database = {
             columns: ["plaid_item_id"]
             isOneToOne: false
             referencedRelation: "plaid_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // hand-edited: see migration 20260511_bill_reminders_payee
+      bill_reminders: {
+        Row: {
+          bill_id: string
+          created_at: string
+          days_before: number | null
+          enabled: boolean
+          id: string
+          kind: Database["public"]["Enums"]["bill_reminder_kind_t"]
+          time_of_day: string
+          updated_at: string
+        }
+        Insert: {
+          bill_id: string
+          created_at?: string
+          days_before?: number | null
+          enabled?: boolean
+          id?: string
+          kind: Database["public"]["Enums"]["bill_reminder_kind_t"]
+          time_of_day?: string
+          updated_at?: string
+        }
+        Update: {
+          bill_id?: string
+          created_at?: string
+          days_before?: number | null
+          enabled?: boolean
+          id?: string
+          kind?: Database["public"]["Enums"]["bill_reminder_kind_t"]
+          time_of_day?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bill_reminders_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "bills"
             referencedColumns: ["id"]
           },
         ]
@@ -235,7 +283,13 @@ export type Database = {
           linked_account_id: string | null
           name: string
           next_due_at: string
+          // hand-edited: see migration 20260511_bill_reminders_payee
+          notes: string | null
           owner_user_id: string
+          // hand-edited: see migration 20260511_bill_reminders_payee
+          payee_glyph: string | null
+          // hand-edited: see migration 20260511_bill_reminders_payee
+          payee_hue: number | null
           recurring_group_id: string | null
           source: Database["public"]["Enums"]["bill_source_t"]
           space_id: string
@@ -252,7 +306,10 @@ export type Database = {
           linked_account_id?: string | null
           name: string
           next_due_at: string
+          notes?: string | null
           owner_user_id: string
+          payee_glyph?: string | null
+          payee_hue?: number | null
           recurring_group_id?: string | null
           source?: Database["public"]["Enums"]["bill_source_t"]
           space_id: string
@@ -269,7 +326,10 @@ export type Database = {
           linked_account_id?: string | null
           name?: string
           next_due_at?: string
+          notes?: string | null
           owner_user_id?: string
+          payee_glyph?: string | null
+          payee_hue?: number | null
           recurring_group_id?: string | null
           source?: Database["public"]["Enums"]["bill_source_t"]
           space_id?: string
@@ -440,6 +500,9 @@ export type Database = {
         Row: {
           actual_amount: number | null
           amount: number
+          // hand-edited: see migration 20260512_income_redesign
+          amount_high: number | null
+          amount_low: number | null
           autopay: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
           // hand-edited: see migration 20260507_bills_income_category
@@ -451,15 +514,21 @@ export type Database = {
           name: string
           next_due_at: string
           owner_user_id: string
+          // hand-edited: see migration 20260512_income_redesign
+          paused_at: string | null
           received_at: string | null
           recurring_group_id: string | null
           source: Database["public"]["Enums"]["bill_source_t"]
+          // hand-edited: see migration 20260512_income_redesign
+          source_type: Database["public"]["Enums"]["income_source_t"]
           space_id: string
           updated_at: string
         }
         Insert: {
           actual_amount?: number | null
           amount: number
+          amount_high?: number | null
+          amount_low?: number | null
           autopay?: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
           category?: string | null
@@ -470,15 +539,19 @@ export type Database = {
           name: string
           next_due_at: string
           owner_user_id: string
+          paused_at?: string | null
           received_at?: string | null
           recurring_group_id?: string | null
           source?: Database["public"]["Enums"]["bill_source_t"]
+          source_type?: Database["public"]["Enums"]["income_source_t"]
           space_id: string
           updated_at?: string
         }
         Update: {
           actual_amount?: number | null
           amount?: number
+          amount_high?: number | null
+          amount_low?: number | null
           autopay?: boolean
           cadence?: Database["public"]["Enums"]["cadence_t"]
           category?: string | null
@@ -489,9 +562,11 @@ export type Database = {
           name?: string
           next_due_at?: string
           owner_user_id?: string
+          paused_at?: string | null
           received_at?: string | null
           recurring_group_id?: string | null
           source?: Database["public"]["Enums"]["bill_source_t"]
+          source_type?: Database["public"]["Enums"]["income_source_t"]
           space_id?: string
           updated_at?: string
         }
@@ -515,6 +590,49 @@ export type Database = {
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // hand-edited: see migration 20260512_income_redesign
+      income_receipts: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          income_event_id: string
+          received_at: string
+          transaction_id: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          income_event_id: string
+          received_at: string
+          transaction_id?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          income_event_id?: string
+          received_at?: string
+          transaction_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "income_receipts_income_event_id_fkey"
+            columns: ["income_event_id"]
+            isOneToOne: false
+            referencedRelation: "income_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "income_receipts_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
             referencedColumns: ["id"]
           },
         ]
@@ -1093,6 +1211,7 @@ export type Database = {
     Enums: {
       account_type_t: "depository" | "credit" | "loan" | "investment" | "other"
       bill_payment_status_t: "paid" | "overdue" | "skipped"
+      bill_reminder_kind_t: "days_before" | "on_due_date" | "mute_all"
       bill_source_t: "detected" | "manual"
       budget_period_t: "monthly" | "weekly"
       cadence_t:
@@ -1103,6 +1222,13 @@ export type Database = {
         | "custom"
         | "once"
       goal_kind_t: "save" | "payoff"
+      // hand-edited: see migration 20260512_income_redesign
+      income_source_t:
+        | "paycheck"
+        | "freelance"
+        | "rental"
+        | "investment"
+        | "one_time"
       space_role_t: "owner" | "member"
       tier_t: "starter" | "pro" | "household"
     }
@@ -1687,10 +1813,13 @@ export const Constants = {
     Enums: {
       account_type_t: ["depository", "credit", "loan", "investment", "other"],
       bill_payment_status_t: ["paid", "overdue", "skipped"],
+      bill_reminder_kind_t: ["days_before", "on_due_date", "mute_all"],
       bill_source_t: ["detected", "manual"],
       budget_period_t: ["monthly", "weekly"],
       cadence_t: ["monthly", "weekly", "biweekly", "yearly", "custom", "once"],
       goal_kind_t: ["save", "payoff"],
+      // hand-edited: see migration 20260512_income_redesign
+      income_source_t: ["paycheck", "freelance", "rental", "investment", "one_time"],
       space_role_t: ["owner", "member"],
       tier_t: ["starter", "pro", "household"],
     },

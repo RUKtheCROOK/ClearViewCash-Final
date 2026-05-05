@@ -1,70 +1,69 @@
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
-import { Card, HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
+import { Pressable, ScrollView, Text as RNText, TextInput, View } from "react-native";
+import { I, fonts } from "@cvc/ui";
 import {
   getAccountsForView,
   getMembersWithProfilesForSpace,
   getTransactionsForView,
+  setTransactionRecurring,
   setTransactionShare,
 } from "@cvc/api-client";
-import { displayMerchantName } from "@cvc/domain";
+import {
+  displayMerchantName,
+  groupTransactionsByDate,
+  resolveTxCategory,
+} from "@cvc/domain";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
 import { useEffectiveSharedView } from "../../lib/view";
 import { useSpaces } from "../../hooks/useSpaces";
 import { useTier } from "../../hooks/useTier";
-import { TransactionEditSheet } from "../../components/TransactionEditSheet";
-import { RecurringSuggestionsBanner } from "../../components/RecurringSuggestionsBanner";
+import { useTheme } from "../../lib/theme";
+import { TxRow } from "../../components/activity/TxRow";
+import { DateGroupHeader } from "../../components/activity/DateGroup";
+import { FilterChipRail, type RailChip } from "../../components/activity/FilterChipRail";
+import { ExpandedFilters } from "../../components/activity/ExpandedFilters";
+import { TransactionDetailSheet } from "../../components/TransactionDetailSheet";
+import { TransactionLongPressMenu } from "../../components/TransactionLongPressMenu";
+import { TransactionSplitEditor } from "../../components/TransactionSplitEditor";
 import { TransactionsChartSection } from "../../components/TransactionsChartSection";
-
-interface Txn {
-  id: string;
-  merchant_name: string | null;
-  display_name: string | null;
-  amount: number;
-  posted_at: string;
-  category: string | null;
-  pending: boolean;
-  is_recurring: boolean;
-  account_id: string;
-  owner_user_id: string;
-  note: string | null;
-}
-
-interface AccountOpt {
-  id: string;
-  name: string;
-}
-
-interface MemberOpt {
-  user_id: string;
-  display_name: string | null;
-  invited_email: string | null;
-}
-
-type Status = "all" | "pending" | "completed";
-type PickerKind = "account" | "category" | "person" | null;
+import type {
+  AccountOpt,
+  ActivityTxn,
+  AmountRange,
+  DateRangeKey,
+  MemberOpt,
+  Status,
+} from "../../lib/activity-types";
 
 export default function Transactions() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const { activeSpace } = useSpaces();
   const { sharedView, restrictToOwnerId, toggleVisible } = useEffectiveSharedView(activeSpace);
   const { tier } = useTier();
-  const [txns, setTxns] = useState<Txn[]>([]);
+  const { palette, mode } = useTheme(activeSpace?.tint);
+
+  const [txns, setTxns] = useState<ActivityTxn[]>([]);
   const [accountOpts, setAccountOpts] = useState<AccountOpt[]>([]);
   const [memberOpts, setMemberOpts] = useState<MemberOpt[]>([]);
+  const [search, setSearch] = useState("");
   const [status, setStatus] = useState<Status>("all");
   const [recurringOnly, setRecurringOnly] = useState(false);
   const [accountIds, setAccountIds] = useState<Set<string>>(new Set());
-  const [categories, setCategories] = useState<Set<string>>(new Set());
+  const [categoryKinds, setCategoryKinds] = useState<Set<string>>(new Set());
   const [ownerUserIds, setOwnerUserIds] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
-  const [picker, setPicker] = useState<PickerKind>(null);
-  const [editing, setEditing] = useState<Txn | null>(null);
+  const [dateRange, setDateRange] = useState<DateRangeKey>("30d");
+  const [amountRange, setAmountRange] = useState<AmountRange>({ min: null, max: null });
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState<ActivityTxn | null>(null);
+  const [longPressing, setLongPressing] = useState<ActivityTxn | null>(null);
+  const [splitFor, setSplitFor] = useState<ActivityTxn | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [splitTxnIds, setSplitTxnIds] = useState<Set<string>>(new Set());
   const [reloadCount, setReloadCount] = useState(0);
 
+  // Fetch transactions. Note: we filter category KIND client-side, so we don't
+  // pass `categories` to the API. Account + owner are still server-filtered.
   useEffect(() => {
     getTransactionsForView(supabase, {
       spaceId: activeSpaceId,
@@ -72,10 +71,9 @@ export default function Transactions() {
       restrictToOwnerId,
       limit: 200,
       accountIds: accountIds.size ? Array.from(accountIds) : undefined,
-      categories: categories.size ? Array.from(categories) : undefined,
       ownerUserIds: ownerUserIds.size ? Array.from(ownerUserIds) : undefined,
-    }).then((data) => setTxns(data as unknown as Txn[]));
-  }, [activeSpaceId, sharedView, restrictToOwnerId, accountIds, categories, ownerUserIds, reloadCount]);
+    }).then((data) => setTxns(data as unknown as ActivityTxn[]));
+  }, [activeSpaceId, sharedView, restrictToOwnerId, accountIds, ownerUserIds, reloadCount]);
 
   useEffect(() => {
     getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView, restrictToOwnerId }).then(
@@ -133,36 +131,80 @@ export default function Transactions() {
       });
   }, [txns]);
 
-  const categoryOpts = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of txns) if (t.category) set.add(t.category);
-    return Array.from(set).sort();
+  const accountNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of accountOpts) map.set(a.id, a.name);
+    return map;
+  }, [accountOpts]);
+
+  const memberInitialById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of memberOpts) {
+      const name = m.display_name ?? m.invited_email ?? m.user_id;
+      map.set(m.user_id, (name.trim()[0] ?? "?").toUpperCase());
+    }
+    return map;
+  }, [memberOpts]);
+
+  const filtered = useMemo(() => applyFilters({
+    txns,
+    search,
+    status,
+    recurringOnly,
+    categoryKinds,
+    dateRange,
+    amountRange,
+  }), [txns, search, status, recurringOnly, categoryKinds, dateRange, amountRange]);
+
+  const groups = useMemo(() => groupTransactionsByDate(filtered), [filtered]);
+
+  const counts = useMemo(() => {
+    let pending = 0;
+    let completed = 0;
+    for (const t of txns) {
+      if (t.pending) pending += 1;
+      else completed += 1;
+    }
+    return { all: txns.length, pending, completed };
   }, [txns]);
 
-  const filtered = useMemo(() => {
-    return txns.filter((t) => {
-      if (status === "pending" && !t.pending) return false;
-      if (status === "completed" && t.pending) return false;
-      if (recurringOnly && !t.is_recurring) return false;
-      if (search && !displayMerchantName(t).toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
-  }, [txns, status, recurringOnly, search]);
+  const activeFilterCount =
+    accountIds.size +
+    categoryKinds.size +
+    ownerUserIds.size +
+    (status !== "all" ? 1 : 0) +
+    (recurringOnly ? 1 : 0) +
+    (dateRange !== "30d" ? 1 : 0) +
+    (amountRange.min !== null || amountRange.max !== null ? 1 : 0);
 
-  async function hideFromSpace(txnId: string) {
-    if (!activeSpaceId) return;
-    await setTransactionShare(supabase, {
-      transaction_id: txnId,
-      space_id: activeSpaceId,
-      hidden: true,
-    });
-    setReloadCount((c) => c + 1);
-  }
-
-  function chipLabel(prefix: string, set: Set<string>): string {
-    if (set.size === 0) return prefix;
-    return `${prefix} · ${set.size}`;
-  }
+  const railChips: RailChip[] = [
+    {
+      key: "all",
+      label: "All",
+      active: activeFilterCount === 0,
+      onPress: () => resetAll(),
+    },
+    {
+      key: "pending",
+      label: "Pending",
+      count: counts.pending,
+      active: status === "pending",
+      onPress: () => setStatus(status === "pending" ? "all" : "pending"),
+    },
+    {
+      key: "recurring",
+      label: "Recurring",
+      active: recurringOnly,
+      onPress: () => setRecurringOnly((v) => !v),
+    },
+    {
+      key: "more",
+      label: expanded ? "Hide filters" : "More",
+      hasIcon: true,
+      active: expanded,
+      onPress: () => setExpanded((v) => !v),
+    },
+  ];
 
   function toggleInSet<T>(set: Set<T>, value: T): Set<T> {
     const next = new Set(set);
@@ -171,304 +213,325 @@ export default function Transactions() {
     return next;
   }
 
-  function memberLabel(m: MemberOpt): string {
-    return m.display_name ?? m.invited_email ?? m.user_id.slice(0, 8);
+  function resetAll() {
+    setStatus("all");
+    setRecurringOnly(false);
+    setAccountIds(new Set());
+    setCategoryKinds(new Set());
+    setOwnerUserIds(new Set());
+    setDateRange("30d");
+    setAmountRange({ min: null, max: null });
+    setSearch("");
+  }
+
+  const editingHidden = editing ? hiddenIds.has(editing.id) : false;
+  const longPressHidden = longPressing ? hiddenIds.has(longPressing.id) : false;
+  const editingAccountName = editing ? accountNameById.get(editing.account_id) ?? null : null;
+  const longPressAccountName = longPressing
+    ? accountNameById.get(longPressing.account_id) ?? null
+    : null;
+
+  // Suggestions for the full edit sheet — list of raw category strings already in use.
+  const categorySuggestions = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of txns) if (t.category) set.add(t.category);
+    return Array.from(set).sort();
+  }, [txns]);
+
+  async function onLongPressEditCategory() {
+    if (!longPressing) return;
+    const t = longPressing;
+    setLongPressing(null);
+    setEditing(t);
+  }
+
+  async function onLongPressToggleRecurring() {
+    if (!longPressing) return;
+    await setTransactionRecurring(supabase, {
+      id: longPressing.id,
+      is_recurring: !longPressing.is_recurring,
+    });
+    setLongPressing(null);
+    setReloadCount((c) => c + 1);
+  }
+
+  async function onLongPressShareToggle() {
+    if (!longPressing || !activeSpaceId) return;
+    await setTransactionShare(supabase, {
+      transaction_id: longPressing.id,
+      space_id: activeSpaceId,
+      hidden: false,
+    });
+    setLongPressing(null);
+    setReloadCount((c) => c + 1);
+  }
+
+  async function onLongPressHideToggle() {
+    if (!longPressing || !activeSpaceId) return;
+    const wantHide = !longPressHidden;
+    await setTransactionShare(supabase, {
+      transaction_id: longPressing.id,
+      space_id: activeSpaceId,
+      hidden: wantHide,
+    });
+    setLongPressing(null);
+    setReloadCount((c) => c + 1);
+  }
+
+  function onLongPressSplit() {
+    if (!longPressing) return;
+    const t = longPressing;
+    setLongPressing(null);
+    setSplitFor(t);
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
-      <Text variant="muted">
-        {!toggleVisible
-          ? "Showing every transaction on accounts you own."
-          : sharedView
-            ? "Shared view: showing transactions visible in this space."
-            : "My view: showing transactions on accounts you contributed to this space."}
-      </Text>
-      <TextInput
-        placeholder="Search merchant…"
-        value={search}
-        onChangeText={setSearch}
-        style={{
-          borderWidth: 1,
-          borderColor: colors.border,
-          borderRadius: radius.md,
-          padding: space.md,
-          backgroundColor: colors.surface,
-        }}
-      />
-
-      {/* Status pills + recurring toggle */}
-      <HStack gap="sm" style={{ flexWrap: "wrap" }}>
-        {(["all", "pending", "completed"] as Status[]).map((s) => (
-          <Pressable
-            key={s}
-            onPress={() => setStatus(s)}
+    <ScrollView
+      style={{ backgroundColor: palette.canvas }}
+      contentContainerStyle={{ paddingBottom: 80 }}
+      stickyHeaderIndices={[0]}
+    >
+      {/* Sticky header: title, search, chip rail */}
+      <View style={{ backgroundColor: palette.canvas, borderBottomColor: palette.line, borderBottomWidth: 1 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
+          <RNText
             style={{
-              paddingHorizontal: space.md,
-              paddingVertical: space.sm,
-              borderRadius: radius.pill,
-              backgroundColor: status === s ? colors.primary : colors.surface,
-              borderWidth: 1,
-              borderColor: status === s ? colors.primary : colors.border,
+              fontFamily: fonts.uiMedium,
+              fontSize: 28,
+              fontWeight: "500",
+              letterSpacing: -0.6,
+              color: palette.ink1,
             }}
           >
-            <Text style={{ color: status === s ? "#fff" : colors.text }}>{s}</Text>
-          </Pressable>
-        ))}
-        <Pressable
-          onPress={() => setRecurringOnly((v) => !v)}
-          style={{
-            paddingHorizontal: space.md,
-            paddingVertical: space.sm,
-            borderRadius: radius.pill,
-            backgroundColor: recurringOnly ? colors.primary : colors.surface,
-            borderWidth: 1,
-            borderColor: recurringOnly ? colors.primary : colors.border,
-          }}
-        >
-          <Text style={{ color: recurringOnly ? "#fff" : colors.text }}>recurring</Text>
-        </Pressable>
-      </HStack>
+            Activity
+          </RNText>
+          {!toggleVisible ? (
+            <RNText style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
+              Showing every transaction on accounts you own.
+            </RNText>
+          ) : sharedView ? (
+            <RNText style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
+              Shared view — visible in this space.
+            </RNText>
+          ) : (
+            <RNText style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
+              My view — your contributions to this space.
+            </RNText>
+          )}
+        </View>
 
-      {/* Multi-axis filter chips */}
-      <HStack gap="sm" style={{ flexWrap: "wrap" }}>
-        <FilterChip
-          label={chipLabel("Account", accountIds)}
-          active={accountIds.size > 0}
-          onPress={() => setPicker("account")}
-        />
-        <FilterChip
-          label={chipLabel("Category", categories)}
-          active={categories.size > 0}
-          onPress={() => setPicker("category")}
-        />
-        {sharedView ? (
-          <FilterChip
-            label={chipLabel("Person", ownerUserIds)}
-            active={ownerUserIds.size > 0}
-            onPress={() => setPicker("person")}
+        <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              height: 38,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              backgroundColor: palette.tinted,
+            }}
+          >
+            <I.search color={palette.ink3} size={16} />
+            <TextInput
+              placeholder="Search merchants, notes, amounts…"
+              placeholderTextColor={palette.ink3}
+              value={search}
+              onChangeText={setSearch}
+              style={{
+                flex: 1,
+                fontFamily: fonts.ui,
+                fontSize: 13,
+                color: palette.ink1,
+                padding: 0,
+              }}
+            />
+          </View>
+        </View>
+
+        <FilterChipRail palette={palette} chips={railChips} />
+        {expanded ? (
+          <ExpandedFilters
+            palette={palette}
+            mode={mode}
+            status={status}
+            setStatus={setStatus}
+            counts={counts}
+            accountOpts={accountOpts}
+            accountIds={accountIds}
+            toggleAccount={(id) => setAccountIds((s) => toggleInSet(s, id))}
+            categoryKinds={categoryKinds}
+            toggleCategoryKind={(k) => setCategoryKinds((s) => toggleInSet(s, k))}
+            memberOpts={memberOpts}
+            ownerUserIds={ownerUserIds}
+            toggleOwner={(id) => setOwnerUserIds((s) => toggleInSet(s, id))}
+            showPersonGroup={sharedView}
+            dateRange={dateRange}
+            setDateRange={setDateRange}
+            amountRange={amountRange}
+            setAmountRange={setAmountRange}
+            onApply={() => setExpanded(false)}
+            onReset={resetAll}
+            totalMatches={filtered.length}
           />
         ) : null}
-        {accountIds.size + categories.size + ownerUserIds.size > 0 ? (
-          <Pressable
-            onPress={() => {
-              setAccountIds(new Set());
-              setCategories(new Set());
-              setOwnerUserIds(new Set());
-            }}
-            style={{
-              paddingHorizontal: space.md,
-              paddingVertical: space.sm,
-              borderRadius: radius.pill,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text variant="muted">Clear</Text>
-          </Pressable>
-        ) : null}
-      </HStack>
+      </View>
 
-      <RecurringSuggestionsBanner
-        txns={txns}
-        spaceId={activeSpaceId}
-        onPromoted={() => setReloadCount((c) => c + 1)}
-      />
+      {tier !== "starter" && filtered.length > 0 ? (
+        <View style={{ padding: 16 }}>
+          <TransactionsChartSection txns={filtered} />
+        </View>
+      ) : null}
 
-      {tier !== "starter" ? <TransactionsChartSection txns={filtered} /> : null}
+      {groups.length === 0 ? (
+        <View style={{ padding: 32, alignItems: "center" }}>
+          <RNText style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink3, textAlign: "center" }}>
+            {sharedView
+              ? "Nothing shared into this space matches your filters."
+              : "No transactions match your filters."}
+          </RNText>
+        </View>
+      ) : (
+        groups.map((group) => (
+          <View key={group.key}>
+            <DateGroupHeader
+              palette={palette}
+              label={group.label}
+              count={group.count}
+              totalCents={group.totalCents}
+            />
+            {group.txns.map((t) => (
+              <TxRow
+                key={t.id}
+                tx={t}
+                palette={palette}
+                mode={mode}
+                accountName={accountNameById.get(t.account_id) ?? null}
+                sharedInitial={sharedView ? memberInitialById.get(t.owner_user_id) ?? null : null}
+                splitFlag={splitTxnIds.has(t.id)}
+                onTap={() => setEditing(t)}
+                onLongPress={() => setLongPressing(t)}
+              />
+            ))}
+          </View>
+        ))
+      )}
 
-      <Card padded={false}>
-        <Stack gap="sm">
-          {filtered.map((t) => (
-            <Pressable
-              key={t.id}
-              onPress={() => setEditing(t)}
-              onLongPress={() => hideFromSpace(t.id)}
-            >
-              <HStack
-                justify="space-between"
-                align="center"
-                style={{
-                  paddingHorizontal: space.lg,
-                  paddingVertical: space.md,
-                  borderBottomWidth: 1,
-                  borderColor: colors.border,
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text>{displayMerchantName(t)}</Text>
-                  <Text variant="muted">
-                    {t.category ?? "Uncategorized"} · {t.posted_at}
-                    {t.pending ? " · pending" : ""}
-                    {t.is_recurring ? " · recurring" : ""}
-                    {t.note ? " · note" : ""}
-                    {splitTxnIds.has(t.id) ? " · split" : ""}
-                  </Text>
-                </View>
-                <Money cents={t.amount} positiveColor />
-              </HStack>
-            </Pressable>
-          ))}
-          {filtered.length === 0 ? (
-            <Text variant="muted" style={{ padding: space.lg }}>
-              {sharedView ? "Nothing shared into this space matches your filters." : "No transactions."}
-            </Text>
-          ) : null}
-        </Stack>
-      </Card>
-
-      {/* Picker modals */}
-      <PickerModal
-        visible={picker === "account"}
-        title="Filter by account"
-        options={accountOpts.map((a) => ({ id: a.id, label: a.name }))}
-        selected={accountIds}
-        onToggle={(id) => setAccountIds((s) => toggleInSet(s, id))}
-        onClear={() => setAccountIds(new Set())}
-        onClose={() => setPicker(null)}
-      />
-      <PickerModal
-        visible={picker === "category"}
-        title="Filter by category"
-        options={categoryOpts.map((c) => ({ id: c, label: c }))}
-        selected={categories}
-        onToggle={(id) => setCategories((s) => toggleInSet(s, id))}
-        onClear={() => setCategories(new Set())}
-        onClose={() => setPicker(null)}
-        emptyText="Categories appear once transactions load."
-      />
-      <PickerModal
-        visible={picker === "person"}
-        title="Filter by person"
-        options={memberOpts.map((m) => ({ id: m.user_id, label: memberLabel(m) }))}
-        selected={ownerUserIds}
-        onToggle={(id) => setOwnerUserIds((s) => toggleInSet(s, id))}
-        onClear={() => setOwnerUserIds(new Set())}
-        onClose={() => setPicker(null)}
-      />
-
-      <TransactionEditSheet
+      <TransactionDetailSheet
         txn={editing}
         spaceId={activeSpaceId}
         sharedView={sharedView}
-        hiddenInSpace={editing ? hiddenIds.has(editing.id) : false}
-        categorySuggestions={categoryOpts}
+        hiddenInSpace={editingHidden}
+        accountName={editingAccountName}
+        palette={palette}
+        mode={mode}
+        categorySuggestions={categorySuggestions}
         onClose={() => setEditing(null)}
+        onSaved={() => setReloadCount((c) => c + 1)}
+      />
+
+      <TransactionLongPressMenu
+        txn={longPressing}
+        palette={palette}
+        mode={mode}
+        accountName={longPressAccountName}
+        sharedView={sharedView}
+        isHidden={longPressHidden}
+        onClose={() => setLongPressing(null)}
+        onEditCategory={onLongPressEditCategory}
+        onToggleRecurring={onLongPressToggleRecurring}
+        onSplit={onLongPressSplit}
+        onShareToggle={onLongPressShareToggle}
+        onHideToggle={onLongPressHideToggle}
+      />
+
+      <TransactionSplitEditor
+        visible={!!splitFor}
+        txnId={splitFor?.id ?? ""}
+        txnAmountCents={splitFor?.amount ?? 0}
+        spaceId={activeSpaceId}
+        defaultCategory={splitFor?.category ?? null}
+        onClose={() => setSplitFor(null)}
         onSaved={() => setReloadCount((c) => c + 1)}
       />
     </ScrollView>
   );
 }
 
-function FilterChip({
-  label,
-  active,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        paddingHorizontal: space.md,
-        paddingVertical: space.sm,
-        borderRadius: radius.pill,
-        backgroundColor: active ? colors.primary : colors.surface,
-        borderWidth: 1,
-        borderColor: active ? colors.primary : colors.border,
-      }}
-    >
-      <Text style={{ color: active ? "#fff" : colors.text }}>{label}</Text>
-    </Pressable>
-  );
+interface FilterArgs {
+  txns: ActivityTxn[];
+  search: string;
+  status: Status;
+  recurringOnly: boolean;
+  categoryKinds: Set<string>;
+  dateRange: DateRangeKey;
+  amountRange: AmountRange;
 }
 
-function PickerModal({
-  visible,
-  title,
-  options,
-  selected,
-  onToggle,
-  onClear,
-  onClose,
-  emptyText,
-}: {
-  visible: boolean;
-  title: string;
-  options: Array<{ id: string; label: string }>;
-  selected: Set<string>;
-  onToggle: (id: string) => void;
-  onClear: () => void;
-  onClose: () => void;
-  emptyText?: string;
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        onPress={onClose}
-        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
-      >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
-          style={{
-            backgroundColor: colors.bg,
-            borderTopLeftRadius: radius.lg,
-            borderTopRightRadius: radius.lg,
-            padding: space.lg,
-            maxHeight: "70%",
-          }}
-        >
-          <HStack justify="space-between" align="center" style={{ marginBottom: space.md }}>
-            <Text variant="title">{title}</Text>
-            <Pressable onPress={onClear}>
-              <Text variant="muted">Clear</Text>
-            </Pressable>
-          </HStack>
-          <ScrollView>
-            {options.length === 0 ? (
-              <Text variant="muted">{emptyText ?? "No options yet."}</Text>
-            ) : (
-              options.map((opt) => {
-                const isSel = selected.has(opt.id);
-                return (
-                  <Pressable
-                    key={opt.id}
-                    onPress={() => onToggle(opt.id)}
-                    style={{
-                      paddingVertical: space.md,
-                      borderBottomWidth: 1,
-                      borderColor: colors.border,
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Text>{opt.label}</Text>
-                    <Text style={{ color: isSel ? colors.primary : colors.textMuted }}>
-                      {isSel ? "✓" : ""}
-                    </Text>
-                  </Pressable>
-                );
-              })
-            )}
-          </ScrollView>
-          <Pressable
-            onPress={onClose}
-            style={{
-              marginTop: space.lg,
-              padding: space.md,
-              borderRadius: radius.md,
-              backgroundColor: colors.primary,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ color: "#fff", fontWeight: "600" }}>Done</Text>
-          </Pressable>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
+function applyFilters({
+  txns,
+  search,
+  status,
+  recurringOnly,
+  categoryKinds,
+  dateRange,
+  amountRange,
+}: FilterArgs): ActivityTxn[] {
+  const today = startOfDayLocal(new Date());
+  const cutoff = computeCutoff(dateRange, today);
+  const search0 = search.trim().toLowerCase();
+
+  return txns.filter((t) => {
+    if (status === "pending" && !t.pending) return false;
+    if (status === "completed" && t.pending) return false;
+    if (recurringOnly && !t.is_recurring) return false;
+    if (search0) {
+      const merchant = displayMerchantName(t).toLowerCase();
+      const noteText = (t.note ?? "").toLowerCase();
+      const amountText = (Math.abs(t.amount) / 100).toFixed(2);
+      if (
+        !merchant.includes(search0) &&
+        !noteText.includes(search0) &&
+        !amountText.includes(search0)
+      ) {
+        return false;
+      }
+    }
+    if (categoryKinds.size > 0) {
+      const kind = resolveTxCategory(t.category, t.amount).kind;
+      if (!categoryKinds.has(kind)) return false;
+    }
+    if (cutoff) {
+      const d = parseDateLocal(t.posted_at);
+      if (!d) return false;
+      if (d.getTime() < cutoff.getTime()) return false;
+    }
+    if (amountRange.min !== null) {
+      if (Math.abs(t.amount) / 100 < amountRange.min) return false;
+    }
+    if (amountRange.max !== null) {
+      if (Math.abs(t.amount) / 100 > amountRange.max) return false;
+    }
+    return true;
+  });
 }
+
+function startOfDayLocal(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function parseDateLocal(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+  if (!m) return null;
+  const [, y, mo, da] = m;
+  return new Date(Number(y), Number(mo) - 1, Number(da));
+}
+
+function computeCutoff(range: DateRangeKey, today: Date): Date | null {
+  if (range === "all") return null;
+  if (range === "7d") return new Date(today.getTime() - 7 * 86_400_000);
+  if (range === "30d") return new Date(today.getTime() - 30 * 86_400_000);
+  if (range === "month") return new Date(today.getFullYear(), today.getMonth(), 1);
+  return null;
+}
+

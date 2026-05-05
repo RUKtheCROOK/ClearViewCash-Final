@@ -376,6 +376,54 @@ export async function getIncomeEvents(client: CvcSupabaseClient, spaceId: string
   return data ?? [];
 }
 
+export async function getIncomeEventById(client: CvcSupabaseClient, id: string) {
+  const { data, error } = await client
+    .from("income_events")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/** Receipts for one income event, newest first. */
+export async function getIncomeReceipts(
+  client: CvcSupabaseClient,
+  incomeEventId: string,
+  opts: { limit?: number } = {},
+) {
+  const q = client
+    .from("income_receipts")
+    .select("*")
+    .eq("income_event_id", incomeEventId)
+    .order("received_at", { ascending: false });
+  if (opts.limit) q.limit(opts.limit);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** All receipts in a space (joined via income_events). Powers month + YTD math. */
+export async function getIncomeReceiptsForSpace(
+  client: CvcSupabaseClient,
+  spaceId: string,
+  opts: { sinceIso?: string } = {},
+) {
+  const q = client
+    .from("income_receipts")
+    .select("*, income_events!inner(space_id)")
+    .eq("income_events.space_id", spaceId)
+    .order("received_at", { ascending: false });
+  if (opts.sinceIso) q.gte("received_at", opts.sinceIso);
+  const { data, error } = await q;
+  if (error) throw error;
+  // Strip the join column.
+  return (data ?? []).map((r) => {
+    const { income_events: _ev, ...rest } = r as typeof r & { income_events: unknown };
+    return rest;
+  });
+}
+
 export interface NotificationRow {
   id: string;
   kind: string;
@@ -529,3 +577,22 @@ export async function getAccountBalanceHistory(
   })) as unknown as Array<{ posted_at: string; amount: number; account_id: string }>;
   return { accounts, txns };
 }
+
+export interface BillReminderRow {
+  id: string;
+  bill_id: string;
+  kind: 'days_before' | 'on_due_date' | 'mute_all';
+  days_before: number | null;
+  time_of_day: string;
+  enabled: boolean;
+}
+
+export async function getBillReminders(client: CvcSupabaseClient, billId: string): Promise<BillReminderRow[]> {
+  const { data, error } = await client
+    .from('bill_reminders')
+    .select('id, bill_id, kind, days_before, time_of_day, enabled')
+    .eq('bill_id', billId);
+  if (error) throw error;
+  return (data ?? []) as BillReminderRow[];
+}
+
