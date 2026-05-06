@@ -4,27 +4,29 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@cvc/types/supabase.generated";
-import { tierAllows, type Tier, type Bill, type Cadence, type IncomeEvent, type PaymentLink } from "@cvc/types";
+import { tierAllows, type Tier, type Bill, type IncomeEvent, type PaymentLink } from "@cvc/types";
 import {
-  aggregateForecast,
-  allocatePaymentLinks,
   applyWhatIf,
   computeCardDailySpend,
   computeCoverageWarnings,
   forecast,
   type CoverageReport,
-  type ForecastBucket,
-  type ForecastGranularity,
   type ForecastInput,
   type ForecastResult,
   type WhatIfMutation,
 } from "@cvc/domain";
 import { getAccountsForView, getMySpaces } from "@cvc/api-client";
 import { effectiveSharedView, type SpaceMember } from "../../lib/view";
-import { ForecastChart, type ForecastChartType } from "./ForecastChart";
-import { WhatIfPanel } from "./WhatIfPanel";
-import { CoverageStatusCard } from "./CoverageStatusCard";
-import { DayDetailPanel } from "./DayDetailPanel";
+import { I } from "../../lib/icons";
+import { Money } from "../../components/money";
+import { RangeTabs, RANGE_MAP, RANGE_LABELS, type RangeKey } from "./RangeTabs";
+import { ForecastLineChart } from "./ForecastLineChart";
+import { StatCards } from "./StatCards";
+import { LowBalanceBanner } from "./LowBalanceBanner";
+import { EventsList } from "./EventsList";
+import { WhatIfSheet } from "./WhatIfSheet";
+
+const THRESHOLD_CENTS = 50_000; // $500 floor
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -34,22 +36,8 @@ const supabase = createClient<Database>(
 interface SpaceRow {
   id: string;
   name: string;
+  spaceKey?: string;
   members?: SpaceMember[];
-}
-
-interface FundingAccountSummary {
-  id: string;
-  name: string;
-  currentBalance: number;
-  reserved: number;
-  effectiveAvailable: number;
-}
-
-const HORIZON_DAYS = 60;
-
-function fmtMoney(cents: number): string {
-  const sign = cents < 0 ? "-" : "";
-  return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
 }
 
 export default function ForecastPage() {
@@ -73,16 +61,16 @@ export default function ForecastPage() {
 
   const [forecastInput, setForecastInput] = useState<ForecastInput | null>(null);
   const [result, setResult] = useState<ForecastResult | null>(null);
-  const [fundingSummary, setFundingSummary] = useState<FundingAccountSummary[]>([]);
-  const [granularity, setGranularity] = useState<ForecastGranularity>("daily");
+  const [rangeKey, setRangeKey] = useState<RangeKey>("30d");
   const [mutations, setMutations] = useState<WhatIfMutation[]>([]);
-  const [chartType, setChartType] = useState<ForecastChartType>("bars");
-  const [resetSignal, setResetSignal] = useState(0);
-  const [selectedBucketIndex, setSelectedBucketIndex] = useState<number | null>(null);
+  const [whatIfOpen, setWhatIfOpen] = useState(false);
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
   const [accountsById, setAccountsById] = useState<Record<string, string>>({});
 
+  const horizonDays = RANGE_MAP[rangeKey];
   const canForecast = tierAllows(tier, "forecast");
 
+  // ── Auth ──────────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
@@ -108,6 +96,7 @@ export default function ForecastPage() {
     });
   }, [signedIn]);
 
+  // ── Data fetch & forecast compute ─────────────────────────────────────
   useEffect(() => {
     if (!activeSpaceId || !canForecast) return;
     let cancelled = false;
@@ -154,29 +143,6 @@ export default function ForecastPage() {
       for (const a of accounts) namesById[a.id] = a.name ?? "Account";
       setAccountsById(namesById);
 
-      const allocations = allocatePaymentLinks(links, [...fundingBalances, ...cardBalances]);
-      const reservedByFunding = new Map<string, number>();
-      for (const a of allocations) {
-        reservedByFunding.set(
-          a.funding_account_id,
-          (reservedByFunding.get(a.funding_account_id) ?? 0) + a.reserved_cents,
-        );
-      }
-
-      setFundingSummary(
-        fundingAccounts.map((a) => {
-          const currentBalance = a.current_balance ?? 0;
-          const reserved = reservedByFunding.get(a.id) ?? 0;
-          return {
-            id: a.id,
-            name: a.name ?? "Account",
-            currentBalance,
-            reserved,
-            effectiveAvailable: currentBalance - reserved,
-          };
-        }),
-      );
-
       const cardDailySpend = computeCardDailySpend(
         (cardTxnsRes.data ?? []) as Array<{ account_id: string; amount: number; posted_at: string }>,
         cardAccounts.map((a) => a.id),
@@ -185,13 +151,14 @@ export default function ForecastPage() {
 
       const input: ForecastInput = {
         startDate: new Date().toISOString().slice(0, 10),
-        horizonDays: HORIZON_DAYS,
+        horizonDays,
         fundingBalances,
         cardBalances,
         bills: (billsRes.data ?? []) as Bill[],
         incomeEvents: (incomeRes.data ?? []) as IncomeEvent[],
         paymentLinks: links,
         cardDailySpend,
+        lowBalanceThreshold: THRESHOLD_CENTS,
       };
       setForecastInput(input);
       setResult(forecast(input));
@@ -199,66 +166,69 @@ export default function ForecastPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeSpaceId, sharedView, restrictToOwnerId, canForecast]);
+  }, [activeSpaceId, sharedView, restrictToOwnerId, canForecast, horizonDays]);
 
-  const buckets: ForecastBucket[] = useMemo(() => {
-    if (!result) return [];
-    return aggregateForecast(result.days, granularity);
-  }, [result, granularity]);
-
-  useEffect(() => {
-    setSelectedBucketIndex(null);
-  }, [granularity, activeSpaceId]);
-
+  // ── Derived values ────────────────────────────────────────────────────
   const scenarioResult = useMemo(() => {
     if (!forecastInput || mutations.length === 0) return null;
-    return forecast(applyWhatIf(forecastInput, mutations));
-  }, [forecastInput, mutations]);
-
-  const scenarioBuckets: ForecastBucket[] = useMemo(() => {
-    if (!scenarioResult) return [];
-    return aggregateForecast(scenarioResult.days, granularity);
-  }, [scenarioResult, granularity]);
-
-  const baselineLow = useMemo(() => {
-    if (!result || result.days.length === 0) return 0;
-    return result.days.reduce(
-      (acc, d) => (d.effectiveAvailable < acc ? d.effectiveAvailable : acc),
-      result.days[0]!.effectiveAvailable,
-    );
-  }, [result]);
-
-  const scenarioLow = useMemo(() => {
-    if (!scenarioResult || scenarioResult.days.length === 0) return baselineLow;
-    return scenarioResult.days.reduce(
-      (acc, d) => (d.effectiveAvailable < acc ? d.effectiveAvailable : acc),
-      scenarioResult.days[0]!.effectiveAvailable,
-    );
-  }, [scenarioResult, baselineLow]);
+    return forecast(applyWhatIf({ ...forecastInput, horizonDays }, mutations));
+  }, [forecastInput, mutations, horizonDays]);
 
   const min = useMemo(() => {
     if (!result || result.days.length === 0) return null;
     return result.days.reduce((acc, d) => (d.effectiveAvailable < acc.effectiveAvailable ? d : acc));
   }, [result]);
 
-  const totals = useMemo(() => {
-    if (!result) return { cashIn: 0, cashOut: 0 };
-    return result.days.reduce(
-      (acc, d) => ({ cashIn: acc.cashIn + d.cashIn, cashOut: acc.cashOut + d.cashOut }),
-      { cashIn: 0, cashOut: 0 },
-    );
-  }, [result]);
-
   const coverage: CoverageReport | null = useMemo(() => {
     if (!result || !forecastInput) return null;
-    return computeCoverageWarnings(result, forecastInput.bills, forecastInput.lowBalanceThreshold ?? 0);
+    return computeCoverageWarnings(result, forecastInput.bills, THRESHOLD_CENTS);
   }, [result, forecastInput]);
 
-  const defaultFundingAccountId = useMemo(() => {
-    if (!fundingSummary.length) return null;
-    return fundingSummary.reduce((a, b) => (a.currentBalance >= b.currentBalance ? a : b)).id;
-  }, [fundingSummary]);
+  const todayBalance = result?.days[0]?.effectiveAvailable ?? 0;
+  const projectedEnd = result?.days[result.days.length - 1]?.effectiveAvailable ?? 0;
+  const netChange = projectedEnd - todayBalance;
+  const isLowBalance = (min?.effectiveAvailable ?? Infinity) < THRESHOLD_CENTS;
 
+  const defaultFundingAccountId = useMemo(() => {
+    if (!forecastInput?.fundingBalances.length) return null;
+    return forecastInput.fundingBalances.reduce((a, b) =>
+      a.current_balance >= b.current_balance ? a : b,
+    ).account_id;
+  }, [forecastInput]);
+
+  const whatIfRefIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of mutations) {
+      if (m.addBill?.id) ids.add(m.addBill.id);
+      if (m.addIncome?.id) ids.add(m.addIncome.id);
+    }
+    return ids;
+  }, [mutations]);
+
+  const impactText = useMemo(() => {
+    if (!scenarioResult || mutations.length === 0) return null;
+    const scenMin = scenarioResult.days.reduce((acc, d) =>
+      d.effectiveAvailable < acc.effectiveAvailable ? d : acc,
+    );
+    const fmtDate = (() => {
+      const [y, m, d] = scenMin.date.split("-").map(Number);
+      if (!y || !m || !d) return scenMin.date;
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    })();
+    const fmtBal = `$${Math.floor(scenMin.effectiveAvailable / 100).toLocaleString()}`;
+    const status = scenMin.effectiveAvailable >= THRESHOLD_CENTS ? "still above your floor" : "below your floor";
+    return `Lowest day shifts to ${fmtBal} on ${fmtDate} — ${status}.`;
+  }, [scenarioResult, mutations]);
+
+  // Selected date for what-if (defaults to ~one week out if nothing tapped).
+  const selectedDate = useMemo(() => {
+    if (!result) return null;
+    const idx = selectedDayIndex ?? Math.min(7, result.days.length - 1);
+    return result.days[idx]?.date ?? null;
+  }, [result, selectedDayIndex]);
+
+  // ── Early returns ─────────────────────────────────────────────────────
   if (!authReady) {
     return (
       <main className="container" style={{ padding: "40px 0" }}>
@@ -284,7 +254,7 @@ export default function ForecastPage() {
       <main className="container" style={{ padding: "60px 0", maxWidth: 520 }}>
         <h1>Forecast requires Pro</h1>
         <p className="muted" style={{ marginTop: 12 }}>
-          You're on the {tier} plan. Upgrade to project balances forward, model scenarios, and get coverage warnings.
+          You&apos;re on the {tier} plan. Upgrade to project balances forward, model scenarios, and get coverage warnings.
         </p>
         <Link href="/pricing" className="btn btn-primary" style={{ marginTop: 20, display: "inline-flex" }}>
           See pricing
@@ -293,287 +263,209 @@ export default function ForecastPage() {
     );
   }
 
-  return (
-    <main className="container" style={{ padding: "32px 0", display: "flex", flexDirection: "column", gap: 20 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0 }}>Cash Flow Forecast</h1>
-          <p className="muted" style={{ marginTop: 4 }}>
-            Projects effective available balance forward {HORIZON_DAYS} days.
-          </p>
-        </div>
-        {spaces.length > 1 ? (
-          <select
-            value={activeSpaceId ?? ""}
-            onChange={(e) => {
-              setActiveSpaceId(e.target.value);
-              if (typeof window !== "undefined") localStorage.setItem("cvc-active-space", e.target.value);
-            }}
-            style={{ padding: "8px 12px", borderRadius: 6, borderColor: "var(--border, #E5E7EB)" }}
-          >
-            {spaces.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        ) : null}
-      </header>
+  const spaceKey = (activeSpace as { spaceKey?: string } | null)?.spaceKey ?? "personal";
 
-      <section
+  const handleSpacePillClick = () => {
+    if (spaces.length <= 1) return;
+    const idx = spaces.findIndex((s) => s.id === activeSpaceId);
+    const next = spaces[(idx + 1) % spaces.length]!;
+    setActiveSpaceId(next.id);
+    if (typeof window !== "undefined") localStorage.setItem("cvc-active-space", next.id);
+  };
+
+  void coverage; // Reserved for future warning surfacing.
+
+  return (
+    <main
+      className={`space space-${spaceKey}`}
+      style={{
+        maxWidth: 600,
+        margin: "0 auto",
+        minHeight: "100vh",
+        background: "var(--bg-canvas)",
+        paddingBottom: 100,
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      {/* Header — wash band with space pill, title, projected balance */}
+      <header
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: 12,
+          padding: "20px 16px 16px",
+          background: "var(--space-wash)",
+          borderBottom: "1px solid var(--space-edge)",
         }}
       >
-        <Stat label={`${HORIZON_DAYS}-day low point`} primary={min ? fmtMoney(min.effectiveAvailable) : "—"} sub={min ? `on ${min.date}` : ""} />
-        <Stat label={`${HORIZON_DAYS}-day cash in`} primary={fmtMoney(totals.cashIn)} sub="" tone="positive" />
-        <Stat label={`${HORIZON_DAYS}-day cash out`} primary={fmtMoney(totals.cashOut)} sub="" tone="negative" />
-      </section>
-
-      {coverage ? <CoverageStatusCard report={coverage} /> : null}
-
-      <section className="card" style={{ padding: 0 }}>
-        <header
-          style={{
-            padding: 20,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 18 }}>Timeline</h2>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <ChartTypeToggle value={chartType} onChange={setChartType} />
-            <GranularityToggle value={granularity} onChange={setGranularity} />
-            <button
-              onClick={() => setResetSignal((s) => s + 1)}
-              aria-label="Reset zoom"
-              title="Reset zoom (or double-click the chart)"
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <button
+            type="button"
+            onClick={handleSpacePillClick}
+            style={{
+              appearance: "none",
+              border: 0,
+              background: "var(--space-pill-bg)",
+              color: "var(--space-pill-fg)",
+              height: 28,
+              padding: "0 10px",
+              borderRadius: 999,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontFamily: "var(--font-ui)",
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: spaces.length > 1 ? "pointer" : "default",
+            }}
+          >
+            <span
               style={{
-                padding: "6px 12px",
-                borderRadius: 8,
-                border: "1px solid var(--border, #E5E7EB)",
-                background: "white",
-                cursor: "pointer",
+                width: 6,
+                height: 6,
+                borderRadius: 999,
+                background: "var(--space-edge)",
+              }}
+            />
+            {activeSpace?.name ?? "Personal"}
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Link
+              href="/dashboard"
+              style={{
+                fontFamily: "var(--font-ui)",
                 fontSize: 12,
-                fontWeight: 600,
-                color: "var(--text-muted, #64748B)",
+                color: "var(--ink-3)",
+                textDecoration: "none",
               }}
             >
-              Reset zoom
+              ← Home
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedDayIndex(null);
+                setWhatIfOpen(true);
+              }}
+              style={{
+                appearance: "none",
+                border: "1px solid var(--line-soft)",
+                cursor: "pointer",
+                background: "var(--bg-surface)",
+                color: "var(--ink-1)",
+                height: 32,
+                padding: "0 12px",
+                borderRadius: 999,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontFamily: "var(--font-ui)",
+                fontSize: 12.5,
+                fontWeight: 500,
+              }}
+            >
+              {I.flask({ color: "var(--ink-1)", size: 14 })} What-if
             </button>
           </div>
-        </header>
-        <ForecastChart
-          buckets={buckets}
-          compareBuckets={scenarioBuckets.length ? scenarioBuckets : undefined}
-          compareLabel="With scenarios"
-          chartType={chartType}
-          selectedIndex={selectedBucketIndex}
-          onSelectBucket={(_, i) => setSelectedBucketIndex(i)}
-          resetSignal={resetSignal}
-        />
-      </section>
+        </div>
 
-      {activeSpaceId && ownerUserId ? (
-        <WhatIfPanel
-          spaceId={activeSpaceId}
-          ownerUserId={ownerUserId}
+        <h1
+          style={{
+            margin: "12px 0 4px",
+            fontFamily: "var(--font-ui)",
+            fontSize: 28,
+            fontWeight: 500,
+            letterSpacing: "-0.02em",
+            color: "var(--ink-1)",
+          }}
+        >
+          Forecast
+        </h1>
+
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <Money
+            cents={projectedEnd}
+            splitCents
+            style={{ fontSize: 30, fontWeight: 500, letterSpacing: "-0.02em", color: "var(--ink-1)" }}
+            centsStyle={{ color: "var(--ink-3)" }}
+          />
+          <span style={{ fontFamily: "var(--font-ui)", fontSize: 12, color: "var(--ink-3)" }}>
+            projected · {RANGE_LABELS[rangeKey]} from now
+          </span>
+        </div>
+      </header>
+
+      {/* Range tabs */}
+      <div style={{ padding: "14px 16px 8px" }}>
+        <RangeTabs value={rangeKey} onChange={setRangeKey} />
+      </div>
+
+      {/* Chart */}
+      {result && (
+        <div style={{ padding: "4px 16px 0" }}>
+          <ForecastLineChart
+            days={result.days}
+            scenarioDays={scenarioResult?.days}
+            thresholdCents={THRESHOLD_CENTS}
+            lowBalance={isLowBalance}
+            selectedIndex={selectedDayIndex}
+            onSelectIndex={(idx) => setSelectedDayIndex(idx)}
+          />
+        </div>
+      )}
+
+      {/* Stat cards */}
+      {result && (
+        <div style={{ padding: "14px 16px 6px" }}>
+          <StatCards
+            todayCents={todayBalance}
+            lowestCents={min?.effectiveAvailable ?? 0}
+            lowestDate={min?.date ?? ""}
+            lowestBelowFloor={isLowBalance}
+            netCents={netChange}
+          />
+        </div>
+      )}
+
+      {/* Low balance banner */}
+      {isLowBalance && min && (
+        <div style={{ padding: "8px 16px 0" }}>
+          <LowBalanceBanner
+            date={min.date}
+            projectedLowCents={min.effectiveAvailable}
+            thresholdCents={THRESHOLD_CENTS}
+          />
+        </div>
+      )}
+
+      {/* Events list */}
+      {result && (
+        <EventsList
+          days={result.days}
+          accountsById={accountsById}
+          whatIfRefIds={whatIfRefIds}
+          rangeLabel={RANGE_LABELS[rangeKey]}
+        />
+      )}
+
+      {/* What-if sheet */}
+      {selectedDate && (
+        <WhatIfSheet
+          open={whatIfOpen}
+          onClose={() => setWhatIfOpen(false)}
+          onSave={(m) => {
+            setMutations((prev) => [...prev, m]);
+            setWhatIfOpen(false);
+          }}
+          onDiscard={() => {
+            setMutations([]);
+            setWhatIfOpen(false);
+          }}
+          impactText={impactText}
+          spaceId={activeSpaceId ?? ""}
+          ownerUserId={ownerUserId ?? ""}
           defaultFundingAccountId={defaultFundingAccountId}
-          mutations={mutations}
-          onChange={setMutations}
-          baselineLow={baselineLow}
-          scenarioLow={scenarioLow}
+          selectedDate={selectedDate}
         />
-      ) : null}
-
-      {fundingSummary.length ? (
-        <section className="card" style={{ padding: 0 }}>
-          <header style={{ padding: 20 }}>
-            <h2 style={{ margin: 0, fontSize: 18 }}>By account · today</h2>
-            <p className="muted" style={{ marginTop: 4, fontSize: 13 }}>
-              Effective available = balance − reserved for linked cards
-            </p>
-          </header>
-          <div>
-            {fundingSummary.map((a, idx) => (
-              <div
-                key={a.id}
-                style={{
-                  padding: "16px 20px",
-                  borderTop: idx === 0 ? "none" : "1px solid var(--border, #E5E7EB)",
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto",
-                  rowGap: 4,
-                  columnGap: 16,
-                }}
-              >
-                <strong>{a.name}</strong>
-                <strong style={{ color: a.effectiveAvailable < 0 ? "var(--negative, #DC2626)" : "var(--positive, #16A34A)" }}>
-                  {fmtMoney(a.effectiveAvailable)}
-                </strong>
-                <span className="muted">Balance</span>
-                <span>{fmtMoney(a.currentBalance)}</span>
-                {a.reserved > 0 ? (
-                  <>
-                    <span className="muted">Reserved</span>
-                    <span>{fmtMoney(-a.reserved)}</span>
-                  </>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="card" style={{ padding: 0 }}>
-        <header style={{ padding: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Projection</h2>
-          <p className="muted" style={{ marginTop: 4, fontSize: 13 }}>
-            {granularity === "daily" ? `Next ${result?.days.length ?? HORIZON_DAYS} days` : `${buckets.length} ${granularity === "weekly" ? "weeks" : "months"}`}
-          </p>
-        </header>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ textAlign: "left", borderTop: "1px solid var(--border, #E5E7EB)", borderBottom: "1px solid var(--border, #E5E7EB)", fontSize: 12 }}>
-              <th style={{ padding: "8px 20px", fontWeight: 500 }}>{granularity === "daily" ? "Date" : "Period"}</th>
-              <th style={{ padding: "8px 20px", fontWeight: 500, textAlign: "right" }}>In</th>
-              <th style={{ padding: "8px 20px", fontWeight: 500, textAlign: "right" }}>Out</th>
-              <th style={{ padding: "8px 20px", fontWeight: 500, textAlign: "right" }}>{granularity === "daily" ? "Available" : "End avail."}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {buckets.map((b) => (
-              <tr
-                key={`${b.startDate}-${b.endDate}`}
-                style={{ backgroundColor: b.belowThreshold ? "#FEF3C7" : undefined, fontSize: 14 }}
-              >
-                <td style={{ padding: "8px 20px", fontWeight: b.cashIn > 0 || b.cashOut > 0 ? 600 : 400 }}>{b.label}</td>
-                <td style={{ padding: "8px 20px", textAlign: "right", color: b.cashIn > 0 ? "var(--positive, #16A34A)" : "var(--text-muted, #64748B)" }}>
-                  {b.cashIn > 0 ? fmtMoney(b.cashIn) : "—"}
-                </td>
-                <td style={{ padding: "8px 20px", textAlign: "right", color: b.cashOut > 0 ? "var(--negative, #DC2626)" : "var(--text-muted, #64748B)" }}>
-                  {b.cashOut > 0 ? fmtMoney(-b.cashOut) : "—"}
-                </td>
-                <td style={{ padding: "8px 20px", textAlign: "right", fontWeight: 600, color: b.effectiveAvailable < 0 ? "var(--negative, #DC2626)" : undefined }}>
-                  {fmtMoney(b.effectiveAvailable)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <DayDetailPanel
-        bucket={selectedBucketIndex != null ? buckets[selectedBucketIndex] ?? null : null}
-        accountsById={accountsById}
-        onClose={() => setSelectedBucketIndex(null)}
-      />
+      )}
     </main>
-  );
-}
-
-const CHART_TYPES: Array<{ key: ForecastChartType; label: string }> = [
-  { key: "bars", label: "Bars" },
-  { key: "line", label: "Line" },
-  { key: "flows", label: "Flows" },
-];
-
-function ChartTypeToggle({
-  value,
-  onChange,
-}: {
-  value: ForecastChartType;
-  onChange: (t: ForecastChartType) => void;
-}) {
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        gap: 2,
-        padding: 2,
-        background: "var(--bg, #F7F8FB)",
-        border: "1px solid var(--border, #E5E7EB)",
-        borderRadius: 999,
-      }}
-    >
-      {CHART_TYPES.map((t) => {
-        const active = t.key === value;
-        return (
-          <button
-            key={t.key}
-            onClick={() => onChange(t.key)}
-            style={{
-              padding: "6px 14px",
-              borderRadius: 999,
-              border: "none",
-              cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 600,
-              background: active ? "var(--primary, #0EA5E9)" : "transparent",
-              color: active ? "white" : "var(--text-muted, #64748B)",
-            }}
-          >
-            {t.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function Stat({ label, primary, sub, tone }: { label: string; primary: string; sub: string; tone?: "positive" | "negative" }) {
-  const color = tone === "positive" ? "var(--positive, #16A34A)" : tone === "negative" ? "var(--negative, #DC2626)" : undefined;
-  return (
-    <div className="card" style={{ padding: 20 }}>
-      <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ marginTop: 6, fontSize: 24, fontWeight: 700, color }}>{primary}</div>
-      {sub ? <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>{sub}</div> : null}
-    </div>
-  );
-}
-
-const GRANULARITIES: Array<{ key: ForecastGranularity; label: string }> = [
-  { key: "daily", label: "Day" },
-  { key: "weekly", label: "Week" },
-  { key: "monthly", label: "Month" },
-];
-
-function GranularityToggle({ value, onChange }: { value: ForecastGranularity; onChange: (g: ForecastGranularity) => void }) {
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        gap: 2,
-        padding: 2,
-        background: "var(--bg, #F7F8FB)",
-        border: "1px solid var(--border, #E5E7EB)",
-        borderRadius: 999,
-      }}
-    >
-      {GRANULARITIES.map((g) => {
-        const active = g.key === value;
-        return (
-          <button
-            key={g.key}
-            onClick={() => onChange(g.key)}
-            style={{
-              padding: "6px 14px",
-              borderRadius: 999,
-              border: "none",
-              cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 600,
-              background: active ? "var(--primary, #0EA5E9)" : "transparent",
-              color: active ? "white" : "var(--text-muted, #64748B)",
-            }}
-          >
-            {g.label}
-          </button>
-        );
-      })}
-    </div>
   );
 }

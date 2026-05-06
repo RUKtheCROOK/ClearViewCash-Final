@@ -424,6 +424,110 @@ export const I = {
       </svg>
     );
   },
+  flask: (p: IconProps = {}) => {
+    const { color, size = 16, strokeWidth = 1.8 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 3h6M10 3v6L4 19c-1 2 0 3 2 3h12c2 0 3-1 2-3l-6-10V3" />
+      </svg>
+    );
+  },
+  fork: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M7 3v8a3 3 0 003 3v7M11 3v6M7 3v6M14 3l4 6v6h-4" />
+      </svg>
+    );
+  },
+  car: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 17v-5l2-5h10l2 5v5" /><path d="M3 17h18" /><circle cx="7.5" cy="17.5" r="1.5" /><circle cx="16.5" cy="17.5" r="1.5" />
+      </svg>
+    );
+  },
+  shirt: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 7l4-4 4 2 4-2 4 4-3 3v11H7V10L4 7z" />
+      </svg>
+    );
+  },
+  heart: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 21s-7-4.5-9.5-9A5.5 5.5 0 0112 6a5.5 5.5 0 019.5 6c-2.5 4.5-9.5 9-9.5 9z" />
+      </svg>
+    );
+  },
+  book: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 4h6a3 3 0 013 3v13a2 2 0 00-2-2H4V4zM20 4h-6a3 3 0 00-3 3v13a2 2 0 012-2h7V4z" />
+      </svg>
+    );
+  },
+  paw: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="6" cy="10" r="2" /><circle cx="10" cy="6" r="2" /><circle cx="14" cy="6" r="2" /><circle cx="18" cy="10" r="2" /><path d="M8 17a4 4 0 018 0c0 2-2 3-4 3s-4-1-4-3z" />
+      </svg>
+    );
+  },
+  backArr: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 2 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M15 6l-6 6 6 6" />
+      </svg>
+    );
+  },
+  moreDots: (p: IconProps = {}) => {
+    const { color, size = 18 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+        <circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" />
+      </svg>
+    );
+  },
+  dragHandle: (p: IconProps = {}) => {
+    const { color, size = 14 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+        <circle cx="9" cy="6" r="1.4" /><circle cx="15" cy="6" r="1.4" /><circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" /><circle cx="9" cy="18" r="1.4" /><circle cx="15" cy="18" r="1.4" />
+      </svg>
+    );
+  },
+  rollover: (p: IconProps = {}) => {
+    const { color, size = 11, strokeWidth = 1.8 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 12c0-5 4-9 9-9s9 4 9 9" /><path d="M21 12v6h-6" /><path d="M21 12a9 9 0 01-9 9" />
+      </svg>
+    );
+  },
+  tag: (p: IconProps = {}) => {
+    const { color, size = 14, strokeWidth = 1.8 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 12V4h8l10 10-8 8L3 12z" /><circle cx="7.5" cy="7.5" r="1.2" fill={color} />
+      </svg>
+    );
+  },
+  chevL: (p: IconProps = {}) => {
+    const { color, size = 14, strokeWidth = 2 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M15 6l-6 6 6 6" />
+      </svg>
+    );
+  },
 };
 
 export type IconKey = keyof typeof I;

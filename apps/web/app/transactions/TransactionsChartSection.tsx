@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { buildTransactionBuckets, displayMerchantName } from "@cvc/domain";
-import { ForecastChart } from "../forecast/ForecastChart";
+import { TransactionFlowsChart } from "./TransactionFlowsChart";
 
 interface Txn {
   id: string;
@@ -89,9 +89,8 @@ export function TransactionsChartSection({ txns }: { txns: Txn[] }) {
           </span>
         </div>
       </header>
-      <ForecastChart
+      <TransactionFlowsChart
         buckets={buckets}
-        chartType="flows"
         selectedIndex={selectedIndex}
         onSelectBucket={(_, i) => setSelectedIndex(i)}
         resetSignal={resetSignal}

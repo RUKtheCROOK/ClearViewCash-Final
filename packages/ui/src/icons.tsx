@@ -434,6 +434,14 @@ export const I = {
       </Svg>
     );
   },
+  flask: (p: IconProps = {}) => {
+    const { color, size = 14, strokeWidth = 1.8 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M9 3h6M10 3v6L4 19c-1 2 0 3 2 3h12c2 0 3-1 2-3l-6-10V3" />
+      </Svg>
+    );
+  },
 };
 
 export type IconKey = keyof typeof I;
