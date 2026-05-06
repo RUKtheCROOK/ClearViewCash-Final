@@ -9,10 +9,18 @@ import {
   computeRolloverCents,
   computeSpentByCategory,
   effectiveLimit,
+  suggestBudgets,
   type CategorizedTxn,
 } from "@cvc/domain";
 import { effectiveSharedView, type SpaceMember } from "../../lib/view";
 import { EditPanel, type EditableBudget } from "./EditPanel";
+import { MonthSelector } from "./_components/MonthSelector";
+import { SummaryCard } from "./_components/SummaryCard";
+import { SuggestedBanner } from "./_components/SuggestedBanner";
+import { GroupLabel } from "./_components/GroupLabel";
+import { CategoryRow, type CategoryRowData } from "./_components/CategoryRow";
+import { resolveCategoryBranding } from "./_components/budgetGlyphs";
+import { classifyState } from "./_components/ProgressBar";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -26,6 +34,8 @@ interface Space {
   members?: SpaceMember[];
 }
 
+const MONTHS_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
 export default function BudgetsPage() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
@@ -37,6 +47,7 @@ export default function BudgetsPage() {
   const [budgets, setBudgets] = useState<EditableBudget[]>([]);
   const [txns60d, setTxns60d] = useState<CategorizedTxn[]>([]);
   const [editing, setEditing] = useState<EditableBudget | null>(null);
+  const [seedCategory, setSeedCategory] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [reloadCount, setReloadCount] = useState(0);
 
@@ -91,30 +102,73 @@ export default function BudgetsPage() {
     }).then((rows) => setTxns60d(rows as unknown as CategorizedTxn[]));
   }, [signedIn, activeSpaceId, sharedView, restrictToOwnerId, reloadCount]);
 
-  const monthStart = useMemo(() => {
-    const d = new Date();
-    d.setUTCDate(1);
-    return d.toISOString().slice(0, 10);
-  }, []);
+  const today = useMemo(() => new Date(), []);
+  const monthIdx = today.getUTCMonth();
+  const year = today.getUTCFullYear();
+  const todayDay = today.getUTCDate();
+  const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+  const monthLabel = MONTHS_FULL[monthIdx] ?? "";
+  const monthIso = useMemo(() => new Date(Date.UTC(year, monthIdx, 1)).toISOString().slice(0, 10), [year, monthIdx]);
 
   const spent = useMemo(
-    () => computeSpentByCategory(txns60d.filter((t) => t.posted_at >= monthStart)),
-    [txns60d, monthStart],
+    () => computeSpentByCategory(txns60d.filter((t) => t.posted_at >= monthIso)),
+    [txns60d, monthIso],
   );
 
-  function fmtMoney(cents: number): string {
-    const sign = cents < 0 ? "-" : "";
-    const abs = Math.abs(cents) / 100;
-    return `${sign}$${abs.toFixed(2)}`;
-  }
+  const rows: CategoryRowData[] = useMemo(() => {
+    return budgets.map((b) => {
+      const branding = resolveCategoryBranding(b.category);
+      const used = spent[b.category] ?? 0;
+      const rollover = computeRolloverCents(b, txns60d);
+      const cap = effectiveLimit(b, rollover);
+      return {
+        id: b.id,
+        name: b.category,
+        glyph: branding.glyph,
+        hue: branding.hue,
+        spentCents: used,
+        limitCents: cap,
+        rolloverInCents: rollover,
+      };
+    });
+  }, [budgets, spent, txns60d]);
 
-  function openCreate() {
+  const overRows = rows.filter((r) => classifyState(r.spentCents, r.limitCents) === "over");
+  const nearRows = rows.filter((r) => classifyState(r.spentCents, r.limitCents) === "near");
+  const okRows = rows.filter((r) => classifyState(r.spentCents, r.limitCents) === "normal");
+
+  const totalLimit = rows.reduce((s, r) => s + r.limitCents, 0);
+  const totalSpent = rows.reduce((s, r) => s + r.spentCents, 0);
+
+  const existing = useMemo(() => new Set(budgets.map((b) => b.category)), [budgets]);
+  const suggestion = useMemo(() => {
+    const monthTxns = txns60d.filter((t) => t.posted_at >= monthIso);
+    const ranked = suggestBudgets(monthTxns, existing);
+    if (ranked.length === 0) return null;
+    const top = ranked[0];
+    if (!top) return null;
+    const txnCount = monthTxns.filter(
+      (t) => t.amount < 0 && (t.category ?? "") === top.category,
+    ).length;
+    return {
+      category: top.category,
+      spentCents: top.monthly_avg_cents,
+      txnCount,
+      hint: null as string | null,
+    };
+  }, [txns60d, existing, monthIso]);
+
+  function openCreate(seed?: string | null) {
     setEditing(null);
+    setSeedCategory(seed ?? null);
     setPanelOpen(true);
   }
 
-  function openEdit(b: EditableBudget) {
+  function openEdit(rowId: string) {
+    const b = budgets.find((x) => x.id === rowId);
+    if (!b) return;
     setEditing(b);
+    setSeedCategory(null);
     setPanelOpen(true);
   }
 
@@ -145,140 +199,213 @@ export default function BudgetsPage() {
   }
 
   return (
-    <main className="container" style={{ padding: "32px 0" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <h1 style={{ margin: 0 }}>Budgets</h1>
-        <Link href="/" className="muted" style={{ fontSize: 14 }}>
-          ← Home
-        </Link>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          gap: 12,
-          alignItems: "center",
-          marginBottom: 24,
-          flexWrap: "wrap",
-        }}
-      >
-        <label className="muted" style={{ fontSize: 13 }}>
-          Space
-        </label>
-        <select
-          value={activeSpaceId ?? ""}
-          onChange={(e) => {
-            setActiveSpaceId(e.target.value);
-            if (typeof window !== "undefined")
-              localStorage.setItem("cvc-active-space", e.target.value);
+    <main style={{ background: "var(--bg-canvas)", minHeight: "100vh", paddingBottom: 40 }}>
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        {/* Header */}
+        <div
+          style={{
+            padding: "20px 16px 10px",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
           }}
-          style={selectStyle}
         >
-          {spaces.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        {toggleVisible ? (
-          <button
-            className={sharedView ? "btn btn-primary" : "btn btn-secondary"}
-            style={{ padding: "8px 14px", fontSize: 14 }}
-            onClick={() => setRawSharedView((v) => !v)}
-          >
-            {sharedView ? "Shared view" : "My view"}
-          </button>
-        ) : null}
-        <button
-          className="btn btn-primary"
-          style={{ marginLeft: "auto", padding: "8px 14px", fontSize: 14 }}
-          onClick={openCreate}
-        >
-          + Add budget
-        </button>
-      </div>
+          <div style={{ flex: 1 }}>
+            <h1
+              style={{
+                margin: 0,
+                fontFamily: "var(--font-ui)",
+                fontSize: 28,
+                fontWeight: 500,
+                letterSpacing: "-0.02em",
+                color: "var(--ink-1)",
+                lineHeight: 1.1,
+              }}
+            >
+              Budgets
+            </h1>
+          </div>
 
-      {budgets.length === 0 ? (
-        <div className="card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="muted" style={{ marginBottom: 16 }}>
-            No budgets set yet.
-          </p>
-          <button className="btn btn-primary" onClick={openCreate}>
-            Create your first budget
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gap: 12 }}>
-          {budgets.map((b) => {
-            const used = spent[b.category] ?? 0;
-            const rollover = computeRolloverCents(b, txns60d);
-            const cap = effectiveLimit(b, rollover);
-            const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : 0;
-            const over = used > cap;
-            return (
-              <div
-                key={b.id}
-                onClick={() => openEdit(b)}
-                className="card"
-                style={{ padding: 20, cursor: "pointer" }}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {spaces.length > 1 ? (
+              <select
+                value={activeSpaceId ?? ""}
+                onChange={(e) => {
+                  setActiveSpaceId(e.target.value);
+                  if (typeof window !== "undefined")
+                    localStorage.setItem("cvc-active-space", e.target.value);
+                }}
+                style={{
+                  border: "1px solid var(--line-soft)",
+                  borderRadius: 999,
+                  padding: "6px 10px",
+                  fontSize: 13,
+                  background: "var(--bg-surface)",
+                  color: "var(--ink-1)",
+                  fontFamily: "var(--font-ui)",
+                }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <strong style={{ fontSize: 17 }}>{b.category}</strong>
-                  <span className="muted" style={{ fontSize: 13 }}>
-                    {b.period}
-                  </span>
-                </div>
-                {rollover > 0 ? (
-                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                    + {fmtMoney(rollover)} rollover
-                  </div>
-                ) : null}
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginTop: 10,
-                    fontSize: 14,
-                  }}
-                >
-                  <span>{fmtMoney(used)}</span>
-                  <span className="muted">of {fmtMoney(cap)}</span>
-                </div>
-                <div
-                  style={{
-                    height: 8,
-                    background: "var(--border)",
-                    borderRadius: 999,
-                    marginTop: 8,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${pct}%`,
-                      height: "100%",
-                      background: over ? "var(--negative)" : "var(--primary)",
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+                {spaces.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {toggleVisible ? (
+              <button
+                type="button"
+                onClick={() => setRawSharedView((v) => !v)}
+                style={{
+                  border: "1px solid var(--line-soft)",
+                  borderRadius: 999,
+                  padding: "6px 10px",
+                  fontSize: 13,
+                  background: sharedView ? "var(--brand-tint)" : "var(--bg-surface)",
+                  color: sharedView ? "var(--brand)" : "var(--ink-2)",
+                  cursor: "pointer",
+                  fontFamily: "var(--font-ui)",
+                }}
+              >
+                {sharedView ? "Shared view" : "My view"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => openCreate()}
+              aria-label="Add budget"
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 999,
+                background: "var(--brand)",
+                color: "var(--brand-on)",
+                border: 0,
+                cursor: "pointer",
+                display: "grid",
+                placeItems: "center",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+              }}
+            >
+              <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          </div>
         </div>
-      )}
+
+        {budgets.length === 0 ? (
+          <div style={{ padding: "0 16px" }}>
+            <div
+              style={{
+                padding: 32,
+                borderRadius: 18,
+                background: "var(--bg-surface)",
+                border: "1px solid var(--line-soft)",
+                textAlign: "center",
+              }}
+            >
+              <p style={{ marginBottom: 16, color: "var(--ink-3)", fontFamily: "var(--font-ui)" }}>
+                Set a calm budget for what matters. Pick a category to start — we&apos;ll track spend without scolding.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => openCreate()}
+                style={{ padding: "10px 18px" }}
+              >
+                + Add a budget
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <MonthSelector monthIdx={monthIdx} year={year} />
+
+            <SummaryCard
+              spentCents={totalSpent}
+              totalCents={totalLimit}
+              todayDay={todayDay}
+              daysInMonth={daysInMonth}
+            />
+
+            {suggestion ? (
+              <SuggestedBanner
+                category={suggestion.category}
+                spentCents={suggestion.spentCents}
+                txnCount={suggestion.txnCount}
+                hint={suggestion.hint}
+                onAdd={() => openCreate(suggestion.category)}
+              />
+            ) : null}
+
+            {overRows.length > 0 ? (
+              <>
+                <GroupLabel label="Needs attention" count={overRows.length} hue="var(--warn)" />
+                <div style={{ background: "var(--bg-surface)", borderTop: "1px solid var(--line-soft)", borderBottom: "1px solid var(--line-soft)" }}>
+                  {overRows.map((r, i) => (
+                    <CategoryRow
+                      key={r.id}
+                      cat={r}
+                      isLast={i === overRows.length - 1}
+                      onClick={() => openEdit(r.id)}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            {nearRows.length > 0 ? (
+              <>
+                <GroupLabel label="Close to limit" count={nearRows.length} hue="var(--accent)" />
+                <div style={{ background: "var(--bg-surface)", borderTop: "1px solid var(--line-soft)", borderBottom: "1px solid var(--line-soft)" }}>
+                  {nearRows.map((r, i) => (
+                    <CategoryRow
+                      key={r.id}
+                      cat={r}
+                      isLast={i === nearRows.length - 1}
+                      onClick={() => openEdit(r.id)}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            {okRows.length > 0 ? (
+              <>
+                <GroupLabel label="On track" count={okRows.length} hue="var(--brand)" />
+                <div style={{ background: "var(--bg-surface)", borderTop: "1px solid var(--line-soft)", borderBottom: "1px solid var(--line-soft)" }}>
+                  {okRows.map((r, i) => (
+                    <CategoryRow
+                      key={r.id}
+                      cat={r}
+                      isLast={i === okRows.length - 1}
+                      onClick={() => openEdit(r.id)}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            <div style={{ paddingTop: 18, textAlign: "center" }}>
+              <Link href="#" onClick={(e) => { e.preventDefault(); openCreate(); }} style={{ fontFamily: "var(--font-ui)", fontSize: 12.5, color: "var(--ink-3)" }}>
+                Edit categories →
+              </Link>
+            </div>
+
+            <p style={{ marginTop: 10, padding: "0 24px", textAlign: "center", fontFamily: "var(--font-ui)", fontSize: 11, color: "var(--ink-4)", lineHeight: 1.5 }}>
+              {monthLabel} {year} · {activeSpace?.name ?? "Personal"}
+            </p>
+          </>
+        )}
+      </div>
 
       <EditPanel
         client={supabase}
         open={panelOpen}
         spaceId={activeSpaceId}
         budget={editing}
+        seedCategory={seedCategory}
         recentTxns={txns60d}
         existingCategories={budgets.map((b) => b.category)}
         onClose={() => setPanelOpen(false)}
@@ -287,17 +414,3 @@ export default function BudgetsPage() {
     </main>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  border: "1px solid var(--border)",
-  borderRadius: 10,
-  padding: "10px 12px",
-  fontSize: 15,
-  background: "var(--surface)",
-  color: "var(--text)",
-};
-
-const selectStyle: React.CSSProperties = {
-  ...inputStyle,
-  padding: "8px 10px",
-};
