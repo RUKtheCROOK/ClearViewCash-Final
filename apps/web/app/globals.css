@@ -171,6 +171,12 @@
   color: var(--budget-icon-fg-dark) !important;
 }
 
+/* Goal icon disc — same flip pattern as budgets. */
+[data-theme="dark"] .cvc-goal-icon {
+  background: var(--goal-icon-bg-dark) !important;
+  color: var(--goal-icon-fg-dark) !important;
+}
+
 /* Income empty-state illustration ring backdrop. */
 [data-theme="dark"] .cvc-income-empty-bg { background: oklch(24% 0.030 155) !important; }
 
