@@ -700,3 +700,58 @@ export async function deleteBillReminder(client: CvcSupabaseClient, id: string) 
   if (error) throw error;
 }
 
+// ─── Notification preferences ────────────────────────────────────────────
+
+type NotifPrefsUpdate = Tables["notification_preferences"]["Update"];
+
+export async function updateNotificationPreferences(
+  client: CvcSupabaseClient,
+  patch: Partial<Omit<NotifPrefsUpdate, "user_id" | "updated_at">>,
+) {
+  const { data: user } = await client.auth.getUser();
+  if (!user.user) throw new Error("Not authenticated");
+  const { data, error } = await client
+    .from("notification_preferences")
+    .upsert({ user_id: user.user.id, ...patch }, { onConflict: "user_id" })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// ─── Space sharing defaults ──────────────────────────────────────────────
+
+export async function updateSpaceSharingDefaults(
+  client: CvcSupabaseClient,
+  args: {
+    space_id: string;
+    share_balances_default?: boolean;
+    share_transactions_default?: boolean;
+    members_can_edit?: boolean;
+    mine_shared_enabled?: boolean;
+  },
+) {
+  const { space_id, ...patch } = args;
+  const { data, error } = await client
+    .from("spaces")
+    .update(patch)
+    .eq("id", space_id)
+    .select("id, share_balances_default, share_transactions_default, members_can_edit, mine_shared_enabled")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// ─── Leave space (members only — owners use deleteSpace) ─────────────────
+
+export async function leaveSpace(client: CvcSupabaseClient, spaceId: string) {
+  const { data: user } = await client.auth.getUser();
+  if (!user.user) throw new Error("Not authenticated");
+  const { error } = await client
+    .from("space_members")
+    .delete()
+    .eq("space_id", spaceId)
+    .eq("user_id", user.user.id);
+  if (error) throw error;
+}
+

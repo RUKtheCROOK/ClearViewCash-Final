@@ -932,24 +932,36 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          members_can_edit: boolean
+          mine_shared_enabled: boolean
           name: string
           owner_user_id: string
+          share_balances_default: boolean
+          share_transactions_default: boolean
           tint: string
           updated_at: string
         }
         Insert: {
           created_at?: string
           id?: string
+          members_can_edit?: boolean
+          mine_shared_enabled?: boolean
           name: string
           owner_user_id: string
+          share_balances_default?: boolean
+          share_transactions_default?: boolean
           tint?: string
           updated_at?: string
         }
         Update: {
           created_at?: string
           id?: string
+          members_can_edit?: boolean
+          mine_shared_enabled?: boolean
           name?: string
           owner_user_id?: string
+          share_balances_default?: boolean
+          share_transactions_default?: boolean
           tint?: string
           updated_at?: string
         }
@@ -962,6 +974,75 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      notification_preferences: {
+        Row: {
+          bill_reminders: boolean
+          budget_warnings: boolean
+          email_enabled: boolean
+          goal_milestones: boolean
+          large_transactions: boolean
+          large_txn_personal_cents: number
+          large_txn_shared_cents: number
+          low_balance: boolean
+          low_balance_threshold_cents: number
+          plaid_connection_issues: boolean
+          push_enabled: boolean
+          quiet_hours_enabled: boolean
+          quiet_hours_end: string
+          quiet_hours_start: string
+          sms_enabled: boolean
+          time_zone: string
+          unusual_spending: boolean
+          updated_at: string
+          user_id: string
+          weekly_summary: boolean
+        }
+        Insert: {
+          bill_reminders?: boolean
+          budget_warnings?: boolean
+          email_enabled?: boolean
+          goal_milestones?: boolean
+          large_transactions?: boolean
+          large_txn_personal_cents?: number
+          large_txn_shared_cents?: number
+          low_balance?: boolean
+          low_balance_threshold_cents?: number
+          plaid_connection_issues?: boolean
+          push_enabled?: boolean
+          quiet_hours_enabled?: boolean
+          quiet_hours_end?: string
+          quiet_hours_start?: string
+          sms_enabled?: boolean
+          time_zone?: string
+          unusual_spending?: boolean
+          updated_at?: string
+          user_id: string
+          weekly_summary?: boolean
+        }
+        Update: {
+          bill_reminders?: boolean
+          budget_warnings?: boolean
+          email_enabled?: boolean
+          goal_milestones?: boolean
+          large_transactions?: boolean
+          large_txn_personal_cents?: number
+          large_txn_shared_cents?: number
+          low_balance?: boolean
+          low_balance_threshold_cents?: number
+          plaid_connection_issues?: boolean
+          push_enabled?: boolean
+          quiet_hours_enabled?: boolean
+          quiet_hours_end?: string
+          quiet_hours_start?: string
+          sms_enabled?: boolean
+          time_zone?: string
+          unusual_spending?: boolean
+          updated_at?: string
+          user_id?: string
+          weekly_summary?: boolean
+        }
+        Relationships: []
       }
       subscriptions: {
         Row: {

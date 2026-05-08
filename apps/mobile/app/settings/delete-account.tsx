@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { ScrollView } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
-import { Button, Card, Stack, Text, colors, space } from "@cvc/ui";
+import { fonts } from "@cvc/ui";
 import { supabase } from "../../lib/supabase";
+import { useTheme } from "../../lib/theme";
+import { Group, PageHeader, SectionLabel } from "../../components/settings/SettingsAtoms";
 
 /**
  * Account deletion is required by Apple App Store guidelines for any app
@@ -10,6 +12,7 @@ import { supabase } from "../../lib/supabase";
  * App Store submission.
  */
 export default function DeleteAccount() {
+  const { palette } = useTheme();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,28 +39,67 @@ export default function DeleteAccount() {
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
-      <Card>
-        <Stack gap="md">
-          <Text variant="h2">Delete account</Text>
-          <Text variant="muted">
-            This permanently deletes your account, all linked institutions, all transactions, and all spaces you own.
-            Members of shared spaces you co-own will lose access. This cannot be undone.
-          </Text>
+    <View style={{ flex: 1, backgroundColor: palette.canvas }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
+        <PageHeader palette={palette} title="Delete account" onBack={() => router.back()} />
+
+        <SectionLabel palette={palette}>WHAT THIS DOES</SectionLabel>
+        <Group palette={palette}>
+          <View style={{ padding: 18, gap: 8 }}>
+            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.ink1 }}>
+              This permanently deletes your account.
+            </Text>
+            <Text style={{ fontFamily: fonts.ui, fontSize: 12.5, color: palette.ink2, lineHeight: 18 }}>
+              All linked institutions, all transactions, and all spaces you own will be removed. Members of shared spaces you co-own will lose access. There is no recovery.
+            </Text>
+          </View>
+        </Group>
+
+        <View style={{ padding: 16, gap: 8 }}>
+          {error ? (
+            <View style={{ padding: 12, borderRadius: 12, backgroundColor: palette.negTint }}>
+              <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.neg }}>{error}</Text>
+            </View>
+          ) : null}
           {!confirming ? (
-            <Button label="I understand, continue" variant="destructive" onPress={() => setConfirming(true)} />
+            <Pressable
+              onPress={() => setConfirming(true)}
+              style={({ pressed }) => ({
+                height: 48,
+                borderRadius: 12,
+                backgroundColor: palette.surface,
+                borderWidth: 1,
+                borderColor: palette.line,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.neg }}>
+                I understand, continue
+              </Text>
+            </Pressable>
           ) : (
-            <Stack gap="sm">
-              <Text style={{ color: colors.negative, fontWeight: "600" }}>
+            <>
+              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "600", color: palette.neg }}>
                 Final confirmation. There is no recovery after this.
               </Text>
-              <Button label="Delete my account" variant="destructive" onPress={performDelete} loading={loading} />
-              <Button label="Cancel" variant="ghost" onPress={() => setConfirming(false)} />
-              {error ? <Text style={{ color: colors.negative }}>{error}</Text> : null}
-            </Stack>
+              <Pressable
+                onPress={performDelete}
+                disabled={loading}
+                style={{ height: 48, borderRadius: 12, backgroundColor: palette.neg, alignItems: "center", justifyContent: "center", opacity: loading ? 0.5 : 1 }}
+              >
+                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: "white" }}>
+                  {loading ? "Deleting…" : "Delete my account"}
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => setConfirming(false)} style={{ height: 48, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.ink2 }}>Cancel</Text>
+              </Pressable>
+            </>
           )}
-        </Stack>
-      </Card>
-    </ScrollView>
+        </View>
+      </ScrollView>
+    </View>
   );
 }

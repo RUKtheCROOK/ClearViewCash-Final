@@ -454,6 +454,76 @@ export async function getUnreadNotificationCount(client: CvcSupabaseClient): Pro
   return count ?? 0;
 }
 
+export interface NotificationPreferences {
+  user_id: string;
+  push_enabled: boolean;
+  email_enabled: boolean;
+  sms_enabled: boolean;
+  bill_reminders: boolean;
+  low_balance: boolean;
+  low_balance_threshold_cents: number;
+  large_transactions: boolean;
+  large_txn_personal_cents: number;
+  large_txn_shared_cents: number;
+  weekly_summary: boolean;
+  budget_warnings: boolean;
+  goal_milestones: boolean;
+  unusual_spending: boolean;
+  plaid_connection_issues: boolean;
+  quiet_hours_enabled: boolean;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  time_zone: string;
+  updated_at: string;
+}
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: Omit<
+  NotificationPreferences,
+  "user_id" | "updated_at"
+> = {
+  push_enabled: true,
+  email_enabled: true,
+  sms_enabled: false,
+  bill_reminders: true,
+  low_balance: true,
+  low_balance_threshold_cents: 25000,
+  large_transactions: true,
+  large_txn_personal_cents: 20000,
+  large_txn_shared_cents: 50000,
+  weekly_summary: true,
+  budget_warnings: true,
+  goal_milestones: false,
+  unusual_spending: false,
+  plaid_connection_issues: true,
+  quiet_hours_enabled: false,
+  quiet_hours_start: "22:00",
+  quiet_hours_end: "07:00",
+  time_zone: "America/Los_Angeles",
+};
+
+export async function getMyNotificationPreferences(
+  client: CvcSupabaseClient,
+): Promise<NotificationPreferences> {
+  const { data: userData } = await client.auth.getUser();
+  const userId = userData.user?.id;
+  if (!userId) throw new Error("Not authenticated");
+  const { data, error } = await client
+    .from("notification_preferences")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  if (data) return data as NotificationPreferences;
+  // Defensive: backfill if the trigger missed (e.g. user predates the migration)
+  const { data: inserted, error: insertErr } = await client
+    .from("notification_preferences")
+    .insert({ user_id: userId })
+    .select("*")
+    .single();
+  if (insertErr) throw insertErr;
+  return inserted as NotificationPreferences;
+}
+
 export async function getPlaidItemsStatus(client: CvcSupabaseClient) {
   const { data, error } = await client
     .from("plaid_items")

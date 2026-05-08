@@ -1,24 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, Switch, TextInput, View } from "react-native";
-import { Button, Card, HStack, Stack, Text, colors, radius, space } from "@cvc/ui";
-import {
-  createPaymentLink,
-  deletePaymentLink,
-  replacePaymentLinkCards,
-  updatePaymentLink,
-} from "@cvc/api-client";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { router } from "expo-router";
+import { fonts } from "@cvc/ui";
+import { deletePaymentLink } from "@cvc/api-client";
 import { supabase } from "../../lib/supabase";
-
-interface AccountRow {
-  id: string;
-  name: string;
-  type: "depository" | "credit" | "loan" | "investment" | "other";
-  mask: string | null;
-}
+import { useTheme } from "../../lib/theme";
+import { Group, PageHeader, Row, SectionLabel } from "../../components/settings/SettingsAtoms";
+import { PaymentLinkEditSheet, type AccountOption, type PaymentLinkDraft } from "../../components/settings/PaymentLinkEditSheet";
 
 interface CardRow {
   card_account_id: string;
   split_pct: number;
+  payment_link_id: string;
 }
 
 interface LinkRow {
@@ -29,15 +22,7 @@ interface LinkRow {
   cards: CardRow[];
 }
 
-interface DraftLink {
-  id?: string;
-  funding_account_id: string;
-  name: string;
-  cross_space: boolean;
-  cards: CardRow[];
-}
-
-const EMPTY_DRAFT: DraftLink = {
+const EMPTY_DRAFT: PaymentLinkDraft = {
   funding_account_id: "",
   name: "",
   cross_space: false,
@@ -45,11 +30,12 @@ const EMPTY_DRAFT: DraftLink = {
 };
 
 export default function PaymentLinks() {
-  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const { palette } = useTheme();
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [links, setLinks] = useState<LinkRow[]>([]);
-  const [draft, setDraft] = useState<DraftLink | null>(null);
-  const [error, setError] = useState<string>("");
+  const [draft, setDraft] = useState<PaymentLinkDraft | null>(null);
   const [reload, setReload] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -58,19 +44,16 @@ export default function PaymentLinks() {
         supabase.from("payment_links").select("id, funding_account_id, name, cross_space"),
         supabase.from("payment_link_cards").select("*"),
       ]);
-      setAccounts((accs ?? []) as AccountRow[]);
+      setAccounts((accs ?? []) as AccountOption[]);
       const merged: LinkRow[] = (rawLinks ?? []).map((l: { id: string; funding_account_id: string; name: string; cross_space: boolean }) => ({
         ...l,
-        cards: (cards ?? []).filter((c: { payment_link_id: string }) => c.payment_link_id === l.id) as CardRow[],
+        cards: ((cards ?? []) as CardRow[]).filter((c) => c.payment_link_id === l.id),
       }));
       setLinks(merged);
     })();
   }, [reload]);
 
-  const fundingAccounts = useMemo(
-    () => accounts.filter((a) => a.type === "depository"),
-    [accounts],
-  );
+  const fundingAccounts = useMemo(() => accounts.filter((a) => a.type === "depository"), [accounts]);
   const cardAccounts = useMemo(() => accounts.filter((a) => a.type === "credit"), [accounts]);
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
@@ -79,7 +62,7 @@ export default function PaymentLinks() {
       setError("You need at least one depository and one credit account first.");
       return;
     }
-    setError("");
+    setError(null);
     setDraft({
       ...EMPTY_DRAFT,
       funding_account_id: fundingAccounts[0]!.id,
@@ -89,274 +72,122 @@ export default function PaymentLinks() {
   }
 
   function startEdit(link: LinkRow) {
-    setError("");
+    setError(null);
     setDraft({
       id: link.id,
       funding_account_id: link.funding_account_id,
       name: link.name,
       cross_space: link.cross_space,
-      cards: link.cards.length > 0 ? link.cards.map((c) => ({ ...c })) : [{ card_account_id: cardAccounts[0]?.id ?? "", split_pct: 100 }],
+      cards: link.cards.length > 0 ? link.cards.map((c) => ({ card_account_id: c.card_account_id, split_pct: c.split_pct })) : [{ card_account_id: cardAccounts[0]?.id ?? "", split_pct: 100 }],
     });
   }
 
-  async function save() {
-    if (!draft) return;
-    setError("");
-    if (!draft.funding_account_id || !draft.name.trim()) {
-      setError("Pick a funding account and give the link a name.");
-      return;
-    }
-    const cards = draft.cards.filter((c) => c.card_account_id);
-    if (cards.length === 0) {
-      setError("Add at least one card.");
-      return;
-    }
-    try {
-      if (draft.id) {
-        await updatePaymentLink(supabase, {
-          id: draft.id,
-          name: draft.name,
-          funding_account_id: draft.funding_account_id,
-          cross_space: draft.cross_space,
-        });
-        await replacePaymentLinkCards(supabase, { payment_link_id: draft.id, cards });
-      } else {
-        await createPaymentLink(supabase, {
-          funding_account_id: draft.funding_account_id,
-          name: draft.name,
-          cross_space: draft.cross_space,
-          cards,
-        });
-      }
-      setDraft(null);
-      setReload((r) => r + 1);
-    } catch (e) {
-      setError((e as Error).message ?? "Save failed.");
-    }
-  }
-
-  async function destroy(linkId: string) {
-    setError("");
-    try {
-      await deletePaymentLink(supabase, linkId);
-      setReload((r) => r + 1);
-    } catch (e) {
-      setError((e as Error).message ?? "Delete failed.");
-    }
-  }
-
-  function updateCard(idx: number, patch: Partial<CardRow>) {
-    if (!draft) return;
-    setDraft({
-      ...draft,
-      cards: draft.cards.map((c, i) => (i === idx ? { ...c, ...patch } : c)),
-    });
-  }
-  function addCardRow() {
-    if (!draft) return;
-    const used = new Set(draft.cards.map((c) => c.card_account_id));
-    const next = cardAccounts.find((a) => !used.has(a.id));
-    if (!next) return;
-    setDraft({ ...draft, cards: [...draft.cards, { card_account_id: next.id, split_pct: 100 }] });
-  }
-  function removeCardRow(idx: number) {
-    if (!draft) return;
-    setDraft({ ...draft, cards: draft.cards.filter((_, i) => i !== idx) });
+  async function destroy(linkId: string, name: string) {
+    Alert.alert(`Delete "${name}"?`, "Your effective available balance will stop subtracting these card balances.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deletePaymentLink(supabase, linkId);
+            setReload((r) => r + 1);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Delete failed.");
+          }
+        },
+      },
+    ]);
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
-      <Stack gap="xs">
-        <Text variant="h2">Payment Links</Text>
-        <Text variant="muted">
-          Mark which depository account pays each credit card. Effective Available subtracts linked
-          card balances from the funding account in real time.
-        </Text>
-      </Stack>
+    <View style={{ flex: 1, backgroundColor: palette.canvas }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
+        <PageHeader palette={palette} title="Payment Links" onBack={() => router.back()} />
 
-      {error ? (
-        <Card>
-          <Text style={{ color: colors.negative }}>{error}</Text>
-        </Card>
-      ) : null}
+        <View style={{ paddingHorizontal: 18, paddingTop: 4, paddingBottom: 12 }}>
+          <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3, lineHeight: 17 }}>
+            Mark which depository account pays each credit card. Effective Available subtracts linked card balances from the funding account in real time.
+          </Text>
+        </View>
 
-      {links.map((link) => {
-        const funding = accountById.get(link.funding_account_id);
-        return (
-          <Card key={link.id}>
-            <Stack gap="sm">
-              <HStack justify="space-between" align="center">
-                <Stack gap="xs">
-                  <Text variant="title">{link.name}</Text>
-                  <Text variant="muted">
-                    Funded by {funding?.name ?? "—"} {link.cross_space ? "· cross-space" : ""}
-                  </Text>
-                </Stack>
-              </HStack>
-              {link.cards.map((c) => {
-                const card = accountById.get(c.card_account_id);
-                return (
-                  <HStack key={c.card_account_id} justify="space-between">
-                    <Text>→ {card?.name ?? "(unknown card)"}</Text>
-                    <Text variant="muted">{c.split_pct}%</Text>
-                  </HStack>
-                );
-              })}
-              <HStack gap="sm">
-                <Button label="Edit" variant="secondary" style={{ flex: 1 }} onPress={() => startEdit(link)} />
-                <Button label="Delete" variant="destructive" style={{ flex: 1 }} onPress={() => destroy(link.id)} />
-              </HStack>
-            </Stack>
-          </Card>
-        );
-      })}
+        {error ? (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+            <View style={{ padding: 12, borderRadius: 12, backgroundColor: palette.negTint }}>
+              <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.neg }}>{error}</Text>
+            </View>
+          </View>
+        ) : null}
 
-      {links.length === 0 ? (
-        <Card>
-          <Text variant="muted">No payment links yet. Tap "+ New link" to set one up.</Text>
-        </Card>
-      ) : null}
+        <SectionLabel palette={palette}>YOUR LINKS</SectionLabel>
+        <Group palette={palette}>
+          {links.length === 0 ? (
+            <Row palette={palette} title="No payment links yet" sub="Tap the button below to set up your first." right={null} last />
+          ) : (
+            links.map((link, i) => {
+              const funding = accountById.get(link.funding_account_id);
+              const totalPct = link.cards.reduce((acc, c) => acc + c.split_pct, 0);
+              return (
+                <Row
+                  key={link.id}
+                  palette={palette}
+                  title={link.name}
+                  sub={`Funded by ${funding?.name ?? "—"}${link.cross_space ? " · cross-space" : ""} · ${link.cards.length} ${link.cards.length === 1 ? "card" : "cards"}`}
+                  value={`${totalPct}%`}
+                  onPress={() => startEdit(link)}
+                  last={i === links.length - 1}
+                />
+              );
+            })
+          )}
+        </Group>
 
-      {!draft ? <Button label="+ New link" onPress={startNew} /> : null}
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 8 }}>
+          <Pressable
+            onPress={startNew}
+            style={({ pressed }) => ({
+              height: 44,
+              borderRadius: 10,
+              backgroundColor: palette.brand,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.brandOn }}>+ New payment link</Text>
+          </Pressable>
+        </View>
+
+        {links.length > 0 ? (
+          <>
+            <SectionLabel palette={palette}>MANAGE</SectionLabel>
+            <Group palette={palette}>
+              {links.map((link, i) => (
+                <Row
+                  key={`del-${link.id}`}
+                  palette={palette}
+                  title={`Delete "${link.name}"`}
+                  danger
+                  onPress={() => destroy(link.id, link.name)}
+                  last={i === links.length - 1}
+                />
+              ))}
+            </Group>
+          </>
+        ) : null}
+      </ScrollView>
 
       {draft ? (
-        <Card>
-          <Stack gap="md">
-            <Text variant="title">{draft.id ? "Edit link" : "New link"}</Text>
-
-            <Stack gap="sm">
-              <Text variant="label">Name</Text>
-              <TextInput
-                value={draft.name}
-                onChangeText={(t) => setDraft({ ...draft, name: t })}
-                placeholder="e.g. Chase pays Amex"
-                style={{
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: radius.md,
-                  padding: space.md,
-                  backgroundColor: colors.surface,
-                }}
-              />
-            </Stack>
-
-            <Stack gap="sm">
-              <Text variant="label">Funding account</Text>
-              <Stack gap="xs">
-                {fundingAccounts.map((a) => (
-                  <Pressable
-                    key={a.id}
-                    onPress={() => setDraft({ ...draft, funding_account_id: a.id })}
-                    style={{
-                      padding: space.md,
-                      borderRadius: radius.md,
-                      borderWidth: 1,
-                      borderColor:
-                        draft.funding_account_id === a.id ? colors.primary : colors.border,
-                      backgroundColor:
-                        draft.funding_account_id === a.id ? colors.primary : colors.surface,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: draft.funding_account_id === a.id ? "#fff" : colors.text,
-                      }}
-                    >
-                      {a.name} {a.mask ? `· •••${a.mask}` : ""}
-                    </Text>
-                  </Pressable>
-                ))}
-              </Stack>
-            </Stack>
-
-            <Stack gap="sm">
-              <Text variant="label">Cards covered</Text>
-              {draft.cards.map((c, idx) => (
-                <View
-                  key={idx}
-                  style={{
-                    padding: space.md,
-                    borderRadius: radius.md,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    gap: space.sm,
-                  }}
-                >
-                  <Stack gap="xs">
-                    {cardAccounts.map((a) => (
-                      <Pressable
-                        key={a.id}
-                        onPress={() => updateCard(idx, { card_account_id: a.id })}
-                        style={{
-                          padding: space.sm,
-                          borderRadius: radius.sm,
-                          backgroundColor:
-                            c.card_account_id === a.id ? colors.primary : "transparent",
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: c.card_account_id === a.id ? "#fff" : colors.text,
-                          }}
-                        >
-                          {a.name} {a.mask ? `· •••${a.mask}` : ""}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </Stack>
-                  <HStack justify="space-between" align="center">
-                    <Text variant="muted">Split %</Text>
-                    <TextInput
-                      value={String(c.split_pct)}
-                      onChangeText={(t) => {
-                        const n = Number(t.replace(/[^\d.]/g, ""));
-                        updateCard(idx, { split_pct: Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0 });
-                      }}
-                      keyboardType="numeric"
-                      style={{
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        borderRadius: radius.sm,
-                        padding: space.sm,
-                        minWidth: 80,
-                        textAlign: "right",
-                      }}
-                    />
-                  </HStack>
-                  {draft.cards.length > 1 ? (
-                    <Button
-                      label="Remove card"
-                      variant="ghost"
-                      onPress={() => removeCardRow(idx)}
-                    />
-                  ) : null}
-                </View>
-              ))}
-              {draft.cards.length < cardAccounts.length ? (
-                <Button label="+ Add another card" variant="secondary" onPress={addCardRow} />
-              ) : null}
-            </Stack>
-
-            <HStack justify="space-between" align="center">
-              <Stack gap="xs" style={{ flex: 1 }}>
-                <Text>Cross-space</Text>
-                <Text variant="muted" style={{ fontSize: 12 }}>
-                  Show this link's effect in spaces where the funding account isn't shared.
-                </Text>
-              </Stack>
-              <Switch
-                value={draft.cross_space}
-                onValueChange={(v) => setDraft({ ...draft, cross_space: v })}
-              />
-            </HStack>
-
-            <HStack gap="sm">
-              <Button label="Cancel" variant="secondary" style={{ flex: 1 }} onPress={() => setDraft(null)} />
-              <Button label={draft.id ? "Save" : "Create"} style={{ flex: 1 }} onPress={save} />
-            </HStack>
-          </Stack>
-        </Card>
+        <PaymentLinkEditSheet
+          visible
+          onClose={() => setDraft(null)}
+          onSaved={() => setReload((r) => r + 1)}
+          fundingAccounts={fundingAccounts}
+          cardAccounts={cardAccounts}
+          initialDraft={draft}
+          palette={palette}
+        />
       ) : null}
-    </ScrollView>
+    </View>
   );
 }

@@ -33,6 +33,8 @@ export interface Palette {
   negTint: string;
   warn: string;
   warnTint: string;
+  over: string;
+  overTint: string;
   info: string;
   infoTint: string;
   // Projected (forecast — intentionally neutral, not green)
@@ -66,6 +68,8 @@ export const lightPalette: Palette = {
   negTint: "#ffe7e4",      // oklch(95% 0.030 25)
   warn: "#be7100",         // oklch(62% 0.140 65)
   warnTint: "#fdebda",     // oklch(95% 0.030 65)
+  over: "#b95628",         // oklch(54% 0.110 35)
+  overTint: "#ffe9dd",     // oklch(95% 0.025 35)
   info: "#2b6991",         // oklch(50% 0.090 240)
   infoTint: "#e0f1fe",     // oklch(95% 0.025 240)
   projected: "#747c7e",    // oklch(58% 0.010 220)
@@ -97,6 +101,8 @@ export const darkPalette: Palette = {
   negTint: "#442321",      // oklch(30% 0.050 25)
   warn: "#f0a556",         // oklch(78% 0.130 65)
   warnTint: "#3f2810",     // oklch(30% 0.050 65)
+  over: "#e89469",         // oklch(72% 0.110 35)
+  overTint: "#3a2014",     // oklch(30% 0.050 35)
   info: "#6eacd7",         // oklch(72% 0.090 240)
   infoTint: "#152b3b",     // oklch(28% 0.040 240)
   projected: "#7a8187",    // oklch(60% 0.012 240)
@@ -215,6 +221,30 @@ export const CATEGORY_TINTS: Record<ThemeMode, Record<CategoryKind, SpaceTint>> 
 
 export function categoryTint(kind: CategoryKind, mode: ThemeMode = "light"): SpaceTint {
   return CATEGORY_TINTS[mode][kind];
+}
+
+// ─── Icon disc tint (settings, etc.) ─────────────────────────────────────
+// Resolve a hue (0..360) to the wash + foreground used by 32px tinted icon
+// discs in the Settings UI. Mirrors the OKLch math from the design source
+// (Settings.jsx Row component): wash = 94% L 0.024 C / fg = 38% L 0.060 C
+// in light mode; in dark mode, wash darkens and fg lifts for contrast.
+
+export interface IconDiscTint {
+  wash: string;
+  fg: string;
+}
+
+export function iconDiscTint(hue: number, mode: ThemeMode = "light"): IconDiscTint {
+  if (mode === "dark") {
+    return {
+      wash: `oklch(28% 0.045 ${hue})`,
+      fg: `oklch(82% 0.090 ${hue})`,
+    };
+  }
+  return {
+    wash: `oklch(94% 0.024 ${hue})`,
+    fg: `oklch(38% 0.060 ${hue})`,
+  };
 }
 
 // ─── Spacing (4pt grid) ───────────────────────────────────────────────────

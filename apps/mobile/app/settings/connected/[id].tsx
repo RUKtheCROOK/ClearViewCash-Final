@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Switch, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Button, Card, HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
+import { fonts, Money } from "@cvc/ui";
 import {
   deleteAccounts,
   getAccountsForPlaidItem,
   getPlaidItem,
 } from "@cvc/api-client";
 import { supabase } from "../../../lib/supabase";
+import { useTheme } from "../../../lib/theme";
+import { Group, PageHeader, ProChip, Row, SectionLabel } from "../../../components/settings/SettingsAtoms";
 
 interface AccountRow {
   id: string;
@@ -24,12 +26,12 @@ interface ItemDetail {
 }
 
 export default function ConnectedDetail() {
+  const { palette } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [item, setItem] = useState<ItemDetail | null>(null);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-
   const [confirming, setConfirming] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,15 +39,10 @@ export default function ConnectedDetail() {
   useEffect(() => {
     if (!id) return;
     (async () => {
-      const [itm, accs] = await Promise.all([
-        getPlaidItem(supabase, id),
-        getAccountsForPlaidItem(supabase, id),
-      ]);
+      const [itm, accs] = await Promise.all([getPlaidItem(supabase, id), getAccountsForPlaidItem(supabase, id)]);
       setItem(itm as ItemDetail | null);
       const rows = accs as AccountRow[];
       setAccounts(rows);
-      // All checked by default — matches the flow where the user came here
-      // intending to remove the service.
       setSelected(new Set(rows.map((a) => a.id)));
       setLoading(false);
     })();
@@ -58,7 +55,6 @@ export default function ConnectedDetail() {
       else next.add(accId);
       return next;
     });
-    // Any change while in confirming state should re-arm the warning.
     setConfirming(false);
   }
 
@@ -71,19 +67,15 @@ export default function ConnectedDetail() {
     setError(null);
     try {
       if (allSelected) {
-        // Remove the whole service. Cascade removes the accounts.
         const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(
-          `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/plaid-item-remove`,
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              Authorization: `Bearer ${session?.access_token ?? ""}`,
-            },
-            body: JSON.stringify({ plaid_item_row_id: item.id }),
+        const res = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/plaid-item-remove`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${session?.access_token ?? ""}`,
           },
-        );
+          body: JSON.stringify({ plaid_item_row_id: item.id }),
+        });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body.detail ?? body.error ?? `HTTP ${res.status}`);
@@ -98,136 +90,141 @@ export default function ConnectedDetail() {
     }
   }
 
-  if (loading) {
-    return (
-      <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
-        <Text variant="muted">Loading…</Text>
-      </ScrollView>
-    );
-  }
-
   return (
-    <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.md, backgroundColor: colors.bg }}>
-      <Stack gap="xs">
-        <Text variant="h2">{item?.institution_name ?? "Unknown bank"}</Text>
-        <HStack gap="sm" align="center">
-          <Text variant="muted">Status:</Text>
-          <Text style={{ color: item?.status === "good" ? colors.positive : colors.negative }}>
-            {item?.status ?? "unknown"}
+    <View style={{ flex: 1, backgroundColor: palette.canvas }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
+        <PageHeader
+          palette={palette}
+          title={item?.institution_name ?? "Connected service"}
+          sub={loading ? "Loading…" : `Status: ${item?.status ?? "unknown"}`}
+          onBack={() => router.back()}
+        />
+
+        <View style={{ paddingHorizontal: 18, paddingTop: 4, paddingBottom: 12 }}>
+          <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3, lineHeight: 17 }}>
+            Select accounts to remove. Removing all of them disconnects the service from ClearViewCash and revokes access at Plaid. Removing some keeps the connection alive.
           </Text>
-        </HStack>
-      </Stack>
+        </View>
 
-      <Text variant="muted">
-        Select the accounts you want to remove. Removing all accounts also disconnects the service from
-        ClearViewCash and revokes access at Plaid. Removing some keeps the connection alive for the rest.
-      </Text>
-
-      {accounts.length === 0 ? (
-        <Card>
-          <Text variant="muted">This service has no accounts.</Text>
-        </Card>
-      ) : null}
-
-      <Card padded={false}>
-        <Stack>
-          <Pressable
-            onPress={() =>
-              setSelected((prev) => (prev.size === accounts.length ? new Set() : new Set(accounts.map((a) => a.id))))
-            }
-            style={{
-              paddingHorizontal: space.lg,
-              paddingVertical: space.md,
-              borderBottomWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <HStack justify="space-between" align="center">
-              <Text style={{ fontWeight: "600" }}>
-                {allSelected ? "Deselect all" : "Select all"}
-              </Text>
-              <Text variant="muted">
-                {selected.size}/{accounts.length} selected
-              </Text>
-            </HStack>
-          </Pressable>
-          {accounts.map((a, idx) => {
-            const isLast = idx === accounts.length - 1;
-            const checked = selected.has(a.id);
-            return (
-              <Pressable
-                key={a.id}
-                onPress={() => toggle(a.id)}
-                style={{
-                  paddingHorizontal: space.lg,
-                  paddingVertical: space.md,
-                  borderBottomWidth: isLast ? 0 : 1,
-                  borderColor: colors.border,
-                }}
-              >
-                <HStack justify="space-between" align="center">
-                  <Stack gap="xs" style={{ flex: 1 }}>
-                    <Text>{a.name}</Text>
-                    <Text variant="muted" style={{ fontSize: 12 }}>
-                      {a.type}
-                      {a.mask ? ` · •••${a.mask}` : ""}
-                    </Text>
-                  </Stack>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+        <SectionLabel palette={palette}>ACCOUNTS</SectionLabel>
+        <Group palette={palette}>
+          {accounts.length === 0 ? (
+            <Row palette={palette} title="No accounts" right={null} last />
+          ) : (
+            <>
+              <Row
+                palette={palette}
+                title={allSelected ? "Deselect all" : "Select all"}
+                value={`${selected.size}/${accounts.length}`}
+                onPress={() => setSelected(allSelected ? new Set() : new Set(accounts.map((a) => a.id)))}
+              />
+              {accounts.map((a, idx) => {
+                const checked = selected.has(a.id);
+                return (
+                  <Pressable
+                    key={a.id}
+                    onPress={() => toggle(a.id)}
+                    android_ripple={{ color: palette.tinted }}
+                    style={{
+                      paddingHorizontal: 18,
+                      paddingVertical: 12,
+                      borderBottomWidth: idx === accounts.length - 1 ? 0 : 1,
+                      borderBottomColor: palette.line,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 6,
+                        borderWidth: 1.5,
+                        borderColor: checked ? palette.brand : palette.lineFirm,
+                        backgroundColor: checked ? palette.brand : "transparent",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {checked ? (
+                        <Text style={{ color: palette.brandOn, fontSize: 14, lineHeight: 14, fontWeight: "700" }}>✓</Text>
+                      ) : null}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.ink1 }}>{a.name}</Text>
+                      <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3, marginTop: 2 }}>
+                        {a.type}
+                        {a.mask ? ` · •••${a.mask}` : ""}
+                      </Text>
+                    </View>
                     <Money cents={a.current_balance} positiveColor />
-                    <Switch value={checked} onValueChange={() => toggle(a.id)} />
-                  </View>
-                </HStack>
-              </Pressable>
-            );
-          })}
-        </Stack>
-      </Card>
+                  </Pressable>
+                );
+              })}
+            </>
+          )}
+        </Group>
 
-      <Card>
-        <Stack gap="md">
-          <View
-            style={{
-              paddingHorizontal: space.sm,
-              paddingVertical: 4,
-              borderRadius: radius.pill,
-              backgroundColor: allSelected ? colors.negative : colors.warning,
-              alignSelf: "flex-start",
-            }}
-          >
-            <Text style={{ color: colors.surface, fontSize: 11, fontWeight: "600" }}>
-              {allSelected ? "Will disconnect service" : "Will keep service connected"}
-            </Text>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
+          <View style={{ marginBottom: 8 }}>
+            <ProChip palette={palette} tone={allSelected ? "muted" : "muted"}>
+              {allSelected ? "WILL DISCONNECT SERVICE" : "WILL KEEP SERVICE CONNECTED"}
+            </ProChip>
           </View>
-          <Text variant="muted">
+          <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3, lineHeight: 17, marginBottom: 12 }}>
             {allSelected
               ? `Removes all ${accounts.length} account${accounts.length === 1 ? "" : "s"} and revokes the Plaid connection.`
-              : `Removes ${selected.size} of ${accounts.length} accounts. The service stays connected and other accounts continue to sync.`}
+              : `Removes ${selected.size} of ${accounts.length} accounts. The service stays connected.`}
           </Text>
+          {error ? (
+            <View style={{ padding: 12, borderRadius: 12, backgroundColor: palette.negTint, marginBottom: 12 }}>
+              <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.neg }}>{error}</Text>
+            </View>
+          ) : null}
           {!confirming ? (
-            <Button
-              label={noneSelected ? "Select at least one account" : "Remove selected"}
-              variant="destructive"
-              disabled={noneSelected}
+            <Pressable
               onPress={() => setConfirming(true)}
-            />
+              disabled={noneSelected}
+              style={{
+                height: 44,
+                borderRadius: 10,
+                backgroundColor: palette.surface,
+                borderWidth: 1,
+                borderColor: palette.line,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: noneSelected ? 0.5 : 1,
+              }}
+            >
+              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.neg }}>
+                {noneSelected ? "Select at least one account" : "Remove selected"}
+              </Text>
+            </Pressable>
           ) : (
-            <Stack gap="sm">
-              <Text style={{ color: colors.negative, fontWeight: "600" }}>
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12, fontWeight: "600", color: palette.neg }}>
                 Final confirmation. This cannot be undone.
               </Text>
-              <Button
-                label={allSelected ? "Disconnect service & remove accounts" : "Remove selected accounts"}
-                variant="destructive"
+              <Pressable
                 onPress={performRemove}
-                loading={removing}
-              />
-              <Button label="Cancel" variant="ghost" onPress={() => setConfirming(false)} />
-              {error ? <Text style={{ color: colors.negative }}>{error}</Text> : null}
-            </Stack>
+                disabled={removing}
+                style={{ height: 44, borderRadius: 10, backgroundColor: palette.neg, alignItems: "center", justifyContent: "center", opacity: removing ? 0.5 : 1 }}
+              >
+                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: "white" }}>
+                  {removing ? "Removing…" : allSelected ? "Disconnect & remove" : "Remove selected accounts"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setConfirming(false)}
+                style={{ height: 44, borderRadius: 10, alignItems: "center", justifyContent: "center" }}
+              >
+                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink2 }}>Cancel</Text>
+              </Pressable>
+            </View>
           )}
-        </Stack>
-      </Card>
-    </ScrollView>
+        </View>
+      </ScrollView>
+    </View>
   );
 }

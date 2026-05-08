@@ -64,6 +64,8 @@
   --neg-tint: oklch(95% 0.030 25);
   --warn: oklch(62% 0.140 65);
   --warn-tint: oklch(95% 0.030 65);
+  --over: oklch(54% 0.110 35);
+  --over-tint: oklch(95% 0.025 35);
   --info: oklch(50% 0.090 240);
   --info-tint: oklch(95% 0.025 240);
 
@@ -125,6 +127,8 @@
   --neg-tint: oklch(30% 0.050 25);
   --warn: oklch(78% 0.130 65);
   --warn-tint: oklch(30% 0.050 65);
+  --over: oklch(72% 0.110 35);
+  --over-tint: oklch(30% 0.050 35);
   --info: oklch(72% 0.090 240);
   --info-tint: oklch(28% 0.040 240);
 
@@ -175,6 +179,12 @@
 [data-theme="dark"] .cvc-goal-icon {
   background: var(--goal-icon-bg-dark) !important;
   color: var(--goal-icon-fg-dark) !important;
+}
+
+/* Report icon disc — same flip pattern as budgets/goals. */
+[data-theme="dark"] .cvc-report-icon {
+  background: var(--report-bg-dark) !important;
+  color: var(--report-fg-dark) !important;
 }
 
 /* Income empty-state illustration ring backdrop. */
