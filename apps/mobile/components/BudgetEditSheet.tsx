@@ -3,32 +3,48 @@ import { Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from "rea
 import Svg, { Path } from "react-native-svg";
 import { fonts } from "@cvc/ui";
 import { deleteBudget, upsertBudget } from "@cvc/api-client";
-import { suggestBudgets, type CategorizedTxn } from "@cvc/domain";
+import { suggestBudgets, type Category, type CategorizedTxn } from "@cvc/domain";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
-import { BudgetCategoryIcon } from "./budgets/BudgetCategoryIcon";
-import { resolveCategoryBranding } from "./budgets/budgetGlyphs";
+import { CategoryDisc } from "./categories/CategoryDisc";
+import { CategoryPicker } from "./categories/CategoryPicker";
 import { Num, fmtMoneyShort } from "./budgets/Num";
 
-export type BudgetPeriod = "monthly" | "weekly";
+export type BudgetPeriod = "monthly" | "weekly" | "paycheck";
 
 export interface EditableBudget {
   id: string;
   category: string;
+  category_id?: string | null;
   limit_amount: number;
   period: BudgetPeriod;
   rollover: boolean;
 }
+
+const PERIOD_LABEL_LIMIT: Record<BudgetPeriod, string> = {
+  monthly: "MONTHLY LIMIT",
+  weekly: "WEEKLY LIMIT",
+  paycheck: "PER-PAYCHECK LIMIT",
+};
+
+const PERIOD_LABEL_PICKER: Record<BudgetPeriod, string> = {
+  monthly: "Monthly",
+  weekly: "Weekly",
+  paycheck: "Per Paycheck",
+};
 
 interface Props {
   visible: boolean;
   spaceId: string | null;
   budget: EditableBudget | null;
   seedCategory?: string | null;
+  seedCategoryId?: string | null;
   recentTxns?: ReadonlyArray<CategorizedTxn>;
   existingCategories?: ReadonlyArray<string>;
+  categories: ReadonlyArray<Category>;
   onClose: () => void;
   onSaved: () => void;
+  onCategoryCreated?: (c: Category) => void;
 }
 
 export function BudgetEditSheet({
@@ -36,13 +52,17 @@ export function BudgetEditSheet({
   spaceId,
   budget,
   seedCategory,
+  seedCategoryId,
   recentTxns,
   existingCategories,
+  categories,
   onClose,
   onSaved,
+  onCategoryCreated,
 }: Props) {
   const { palette, mode } = useTheme();
   const [category, setCategory] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [limitDollars, setLimitDollars] = useState("");
   const [period, setPeriod] = useState<BudgetPeriod>("monthly");
   const [rollover, setRollover] = useState(false);
@@ -50,7 +70,10 @@ export function BudgetEditSheet({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const branding = useMemo(() => resolveCategoryBranding(category || "Food & dining"), [category]);
+  const pickedCategory = useMemo(
+    () => (categoryId ? categories.find((c) => c.id === categoryId) ?? null : null),
+    [categoryId, categories],
+  );
 
   const suggestions = useMemo(() => {
     if (budget) return [];
@@ -79,17 +102,19 @@ export function BudgetEditSheet({
     if (!visible) return;
     if (budget) {
       setCategory(budget.category);
+      setCategoryId(budget.category_id ?? null);
       setLimitDollars((budget.limit_amount / 100).toFixed(0));
       setPeriod(budget.period);
       setRollover(budget.rollover);
     } else {
       setCategory(seedCategory ?? "");
+      setCategoryId(seedCategoryId ?? null);
       setLimitDollars("");
       setPeriod("monthly");
       setRollover(false);
     }
     setError(null);
-  }, [visible, budget, seedCategory]);
+  }, [visible, budget, seedCategory, seedCategoryId]);
 
   async function save() {
     if (!spaceId) {
@@ -114,6 +139,7 @@ export function BudgetEditSheet({
         ...(budget ? { id: budget.id } : {}),
         space_id: spaceId,
         category: trimmed,
+        category_id: categoryId,
         limit_amount,
         period,
         rollover,
@@ -207,23 +233,38 @@ export function BudgetEditSheet({
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }}>
             {/* Hero icon + name */}
             <View style={{ paddingHorizontal: 24, paddingTop: 18, alignItems: "center" }}>
-              <BudgetCategoryIcon hue={branding.hue} glyph={branding.glyph} mode={mode} size={64} radius={16} />
-              <View
-                style={{
-                  marginTop: 14,
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                  borderRadius: 12,
-                  backgroundColor: palette.surface,
-                  borderWidth: 1,
-                  borderColor: palette.line,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  width: "100%",
-                  maxWidth: 320,
-                }}
-              >
+              {pickedCategory ? (
+                <CategoryDisc category={pickedCategory} size={64} />
+              ) : (
+                <View
+                  style={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: 32,
+                    backgroundColor: palette.canvas,
+                    borderWidth: 1,
+                    borderStyle: "dashed",
+                    borderColor: palette.line,
+                  }}
+                />
+              )}
+              {spaceId ? (
+                <View style={{ marginTop: 14, width: "100%", maxWidth: 360 }}>
+                  <CategoryPicker
+                    value={categoryId}
+                    onChange={(id, cat) => {
+                      setCategoryId(id);
+                      setCategory(cat?.name ?? "");
+                    }}
+                    categories={[...categories]}
+                    spaceId={spaceId}
+                    placeholder="Pick a category"
+                    allowCreate
+                    onCategoryCreated={onCategoryCreated}
+                  />
+                </View>
+              ) : null}
+              <View style={{ display: "none" }}>
                 <TextInput
                   value={category}
                   onChangeText={setCategory}
@@ -289,7 +330,7 @@ export function BudgetEditSheet({
             {/* Limit input — large, central */}
             <View style={{ paddingHorizontal: 24, paddingTop: 24, alignItems: "center" }}>
               <Text style={{ fontFamily: fonts.num, fontSize: 10.5, color: palette.ink3, letterSpacing: 0.8, fontWeight: "600" }}>
-                {period === "monthly" ? "MONTHLY LIMIT" : "WEEKLY LIMIT"}
+                {PERIOD_LABEL_LIMIT[period]}
               </Text>
               <View
                 style={{
@@ -357,18 +398,30 @@ export function BudgetEditSheet({
                   overflow: "hidden",
                 }}
               >
-                <View style={{ paddingHorizontal: 14, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    opacity: period === "paycheck" ? 0.5 : 1,
+                  }}
+                >
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.ink1 }}>
                       Rollover unspent
                     </Text>
                     <Text style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 11, color: palette.ink3 }}>
-                      Carry leftover into next month
+                      {period === "paycheck"
+                        ? "Unavailable for paycheck budgets"
+                        : "Carry leftover into next month"}
                     </Text>
                   </View>
                   <Switch
-                    value={rollover}
+                    value={rollover && period !== "paycheck"}
                     onValueChange={setRollover}
+                    disabled={period === "paycheck"}
                     trackColor={{ false: palette.lineFirm, true: palette.brand }}
                     thumbColor={palette.surface}
                   />
@@ -381,12 +434,15 @@ export function BudgetEditSheet({
                     </Text>
                   </View>
                   <View style={{ flexDirection: "row", borderRadius: 999, backgroundColor: palette.tinted, padding: 2 }}>
-                    {(["monthly", "weekly"] as BudgetPeriod[]).map((p) => {
+                    {(["monthly", "weekly", "paycheck"] as BudgetPeriod[]).map((p) => {
                       const active = period === p;
                       return (
                         <Pressable
                           key={p}
-                          onPress={() => setPeriod(p)}
+                          onPress={() => {
+                            setPeriod(p);
+                            if (p === "paycheck") setRollover(false);
+                          }}
                           style={{
                             paddingHorizontal: 10,
                             paddingVertical: 5,
@@ -402,18 +458,28 @@ export function BudgetEditSheet({
                               color: active ? palette.ink1 : palette.ink3,
                             }}
                           >
-                            {p === "monthly" ? "Monthly" : "Weekly"}
+                            {PERIOD_LABEL_PICKER[p]}
                           </Text>
                         </Pressable>
                       );
                     })}
                   </View>
                 </View>
+                {period === "paycheck" ? (
+                  <>
+                    <View style={{ height: 1, backgroundColor: palette.line }} />
+                    <View style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
+                      <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3, lineHeight: 16 }}>
+                        Resets every paycheck. Cycle length comes from your income cadence on the Income tab.
+                      </Text>
+                    </View>
+                  </>
+                ) : null}
               </View>
             </View>
 
             {/* Rollover explainer */}
-            {rollover ? (
+            {rollover && period !== "paycheck" ? (
               <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
                 <View
                   style={{

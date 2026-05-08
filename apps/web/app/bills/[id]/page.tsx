@@ -11,9 +11,11 @@ import {
   getBillReminders,
   recordBillPayment,
   setBillReminder,
+  undoBillPayment,
   type BillReminderRow,
 } from "@cvc/api-client";
 import {
+  bucketForBill,
   daysUntilDue,
   formatLongDate,
   formatShortDate,
@@ -53,6 +55,7 @@ interface PaymentRow {
   paid_at: string;
   status: "paid" | "overdue" | "skipped";
   transaction_id: string | null;
+  prev_next_due_at: string | null;
 }
 
 interface AccountLite {
@@ -135,6 +138,20 @@ export default function BillDetailPage() {
     [payments],
   );
 
+  const detailBucket = useMemo(() => {
+    if (!bill) return null;
+    const latest = sortedPays[0];
+    return bucketForBill(
+      {
+        next_due_at: bill.next_due_at,
+        amount: bill.amount,
+        autopay: bill.autopay,
+        latest_payment: latest ? { paid_at: latest.paid_at } : null,
+      },
+      today,
+    );
+  }, [bill, sortedPays, today]);
+
   const sparkData = useMemo(() => {
     // Last 6 payments (oldest first); fall back to fewer if no history.
     return [...sortedPays.slice(0, 6)].reverse();
@@ -209,6 +226,28 @@ export default function BillDetailPage() {
       setReloadCount((c) => c + 1);
     } catch (e) {
       setError((e as Error).message ?? "Could not mark paid.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function unmarkPaid() {
+    if (!bill) return;
+    const latest = sortedPays[0];
+    if (!latest) return;
+    setBusy("pay");
+    setError(null);
+    try {
+      await undoBillPayment(supabase, {
+        payment_id: latest.id,
+        bill_id: bill.id,
+        cadence: bill.cadence,
+        current_next_due_at: bill.next_due_at,
+        prev_next_due_at: latest.prev_next_due_at,
+      });
+      setReloadCount((c) => c + 1);
+    } catch (e) {
+      setError((e as Error).message ?? "Could not unmark paid.");
     } finally {
       setBusy(null);
     }
@@ -325,12 +364,21 @@ export default function BillDetailPage() {
 
         {/* Quick actions */}
         <div style={{ padding: "0 16px 18px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-          <DetailAction
-            label={busy === "pay" ? "Saving…" : "Mark paid"}
-            disabled={busy === "pay"}
-            onClick={markPaid}
-            icon={<CheckIcon color="var(--ink-1)" />}
-          />
+          {detailBucket === "paid" ? (
+            <DetailAction
+              label={busy === "pay" ? "Saving…" : "Unmark paid"}
+              disabled={busy === "pay"}
+              onClick={unmarkPaid}
+              icon={<UndoIcon color="var(--ink-1)" />}
+            />
+          ) : (
+            <DetailAction
+              label={busy === "pay" ? "Saving…" : "Mark paid"}
+              disabled={busy === "pay"}
+              onClick={markPaid}
+              icon={<CheckIcon color="var(--ink-1)" />}
+            />
+          )}
           <DetailAction
             label="Edit"
             onClick={() => router.push(`/bills/${bill.id}/edit`)}
@@ -702,6 +750,15 @@ function CheckIcon({ color }: { color: string }) {
   return (
     <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
       <path d="M5 12l4 4 10-10" />
+    </svg>
+  );
+}
+
+function UndoIcon({ color }: { color: string }) {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 14l-5-5 5-5" />
+      <path d="M4 9h11a5 5 0 010 10h-3" />
     </svg>
   );
 }

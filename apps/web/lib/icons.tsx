@@ -528,6 +528,30 @@ export const I = {
       </svg>
     );
   },
+  doc: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5M9 13h7M9 17h7" />
+      </svg>
+    );
+  },
+  income: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 4v14M6 12l6 6 6-6" /><path d="M4 21h16" />
+      </svg>
+    );
+  },
+  transfer: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...D, ...p };
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 7h13l-3-3M20 17H7l3 3" />
+      </svg>
+    );
+  },
 };
 
 export type IconKey = keyof typeof I;

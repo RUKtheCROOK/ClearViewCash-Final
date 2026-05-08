@@ -9,8 +9,9 @@ import {
   setTransactionShare,
   updateTransactionCategory,
 } from "@cvc/api-client";
-import { displayMerchantName } from "@cvc/domain";
+import { displayMerchantName, type Category } from "@cvc/domain";
 import { supabase } from "../lib/supabase";
+import { CategoryPicker } from "./categories/CategoryPicker";
 import { TransactionSplitEditor } from "./TransactionSplitEditor";
 
 export interface EditableTxn {
@@ -20,6 +21,7 @@ export interface EditableTxn {
   amount: number;
   posted_at: string;
   category: string | null;
+  category_id?: string | null;
   pending: boolean;
   is_recurring: boolean;
   account_id: string;
@@ -33,8 +35,10 @@ interface Props {
   sharedView: boolean;
   hiddenInSpace: boolean;
   categorySuggestions: string[];
+  categories: Category[];
   onClose: () => void;
   onSaved: () => void;
+  onCategoryCreated?: (c: Category) => void;
 }
 
 export function TransactionEditSheet({
@@ -43,12 +47,15 @@ export function TransactionEditSheet({
   sharedView,
   hiddenInSpace,
   categorySuggestions,
+  categories,
   onClose,
   onSaved,
+  onCategoryCreated,
 }: Props) {
   const [name, setName] = useState<string>("");
   const [applyToVendor, setApplyToVendor] = useState(false);
   const [category, setCategory] = useState<string>("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [note, setNote] = useState<string>("");
   const [recurring, setRecurring] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -61,6 +68,7 @@ export function TransactionEditSheet({
     setName(displayMerchantName(txn));
     setApplyToVendor(false);
     setCategory(txn.category ?? "");
+    setCategoryId(txn.category_id ?? null);
     setNote(txn.note ?? "");
     setRecurring(txn.is_recurring);
     setHidden(hiddenInSpace);
@@ -92,8 +100,14 @@ export function TransactionEditSheet({
       }
       const trimmedCategory = category.trim();
       const newCategory = trimmedCategory.length ? trimmedCategory : null;
-      if (newCategory !== (txn.category ?? null)) {
-        await updateTransactionCategory(supabase, { id: txn.id, category: newCategory });
+      const idChanged = categoryId !== (txn.category_id ?? null);
+      const nameChanged = newCategory !== (txn.category ?? null);
+      if (idChanged || nameChanged) {
+        await updateTransactionCategory(supabase, {
+          id: txn.id,
+          category: newCategory,
+          category_id: categoryId,
+        });
       }
       const trimmedNote = note.trim();
       const newNote = trimmedNote.length ? trimmedNote : null;
@@ -181,40 +195,34 @@ export function TransactionEditSheet({
                 <Text variant="muted" style={{ fontSize: 12 }}>
                   Category
                 </Text>
-                <TextInput
-                  value={category}
-                  onChangeText={setCategory}
-                  placeholder="e.g. groceries"
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: radius.md,
-                    padding: space.md,
-                    backgroundColor: colors.surface,
-                  }}
-                />
-                {categorySuggestions.length ? (
-                  <HStack gap="sm" style={{ flexWrap: "wrap" }}>
-                    {categorySuggestions.slice(0, 8).map((c) => (
-                      <Pressable
-                        key={c}
-                        onPress={() => setCategory(c)}
-                        style={{
-                          paddingHorizontal: space.md,
-                          paddingVertical: space.sm,
-                          borderRadius: radius.pill,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          backgroundColor: colors.surface,
-                        }}
-                      >
-                        <Text variant="muted" style={{ fontSize: 12 }}>
-                          {c}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </HStack>
-                ) : null}
+                {spaceId ? (
+                  <CategoryPicker
+                    value={categoryId}
+                    onChange={(id, cat) => {
+                      setCategoryId(id);
+                      setCategory(cat?.name ?? "");
+                    }}
+                    categories={categories}
+                    spaceId={spaceId}
+                    placeholder="Pick a category"
+                    allowNone
+                    allowCreate
+                    onCategoryCreated={onCategoryCreated}
+                  />
+                ) : (
+                  <TextInput
+                    value={category}
+                    onChangeText={setCategory}
+                    placeholder="e.g. groceries"
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: radius.md,
+                      padding: space.md,
+                      backgroundColor: colors.surface,
+                    }}
+                  />
+                )}
               </Stack>
 
               <Stack gap="sm">

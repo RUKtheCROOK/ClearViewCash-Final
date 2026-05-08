@@ -1,6 +1,12 @@
 import { View } from "react-native";
 import { I, Text } from "@cvc/ui";
-import { hueForCardId, tintForHue, type LinkTintMode } from "@cvc/domain";
+import {
+  hueForCardId,
+  isValidHexColor,
+  readableTextOn,
+  tintForHue,
+  type LinkTintMode,
+} from "@cvc/domain";
 import { useTheme } from "../../lib/theme";
 
 export interface LinkChip {
@@ -9,6 +15,8 @@ export interface LinkChip {
   label: string;
   /** Optional split percentage shown after the label. */
   share?: number | null;
+  /** Optional explicit hex color (from the linked account's settings). When set, overrides the hue. */
+  color?: string | null;
 }
 
 interface Props {
@@ -53,7 +61,11 @@ export function LinkStrip({ direction, links }: Props) {
         </Text>
       </View>
       {links.map((l, i) => {
+        const customColor = isValidHexColor(l.color ?? null) ? (l.color as string) : null;
         const tint = tintForHue(hueForCardId(l.hueKey), mode as LinkTintMode);
+        const pillBg = customColor ?? tint.pillBg;
+        const pillFg = customColor ? readableTextOn(customColor) : tint.pillFg;
+        const swatch = customColor ?? tint.swatch;
         return (
           <View
             key={`${l.hueKey}-${i}`}
@@ -65,7 +77,7 @@ export function LinkStrip({ direction, links }: Props) {
               paddingLeft: 6,
               paddingRight: 8,
               borderRadius: 999,
-              backgroundColor: tint.pillBg,
+              backgroundColor: pillBg,
             }}
           >
             <View
@@ -73,10 +85,12 @@ export function LinkStrip({ direction, links }: Props) {
                 width: 8,
                 height: 8,
                 borderRadius: 2,
-                backgroundColor: tint.swatch,
+                backgroundColor: customColor
+                  ? "rgba(255,255,255,0.35)"
+                  : swatch,
               }}
             />
-            <Text style={{ fontSize: 11.5, fontWeight: "500", color: tint.pillFg }}>
+            <Text style={{ fontSize: 11.5, fontWeight: "500", color: pillFg }}>
               {l.label}
             </Text>
             {l.share != null ? (
@@ -84,7 +98,7 @@ export function LinkStrip({ direction, links }: Props) {
                 style={{
                   fontFamily: "Menlo",
                   fontSize: 10.5,
-                  color: tint.pillFg,
+                  color: pillFg,
                   opacity: 0.85,
                   marginLeft: 2,
                 }}

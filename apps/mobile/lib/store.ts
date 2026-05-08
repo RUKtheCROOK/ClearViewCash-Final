@@ -16,6 +16,8 @@ interface PendingGoalDraft {
 
 export type ThemeMode = "system" | "light" | "dark";
 
+export type BudgetMode = "monthly" | "paycheck";
+
 export type DashboardModuleId = "funding" | "bills" | "forecast" | "recent" | "netWorth";
 
 export interface DashboardLayoutEntry {
@@ -39,6 +41,7 @@ interface AppState {
   // (e.g. after marking notifications read on the notifications screen).
   notificationsBump: number;
   themeMode: ThemeMode;
+  budgetMode: BudgetMode;
   dashboardLayout: DashboardLayoutEntry[];
   dismissedAccountsLinksCallout: boolean;
   setActiveSpace: (id: string) => void;
@@ -46,6 +49,7 @@ interface AppState {
   setPendingGoalDraft: (draft: PendingGoalDraft | null) => void;
   bumpNotifications: () => void;
   setThemeMode: (mode: ThemeMode) => void;
+  setBudgetMode: (mode: BudgetMode) => void;
   setDashboardLayout: (layout: DashboardLayoutEntry[]) => void;
   resetDashboardLayout: () => void;
   dismissAccountsLinksCallout: () => void;
@@ -59,6 +63,7 @@ export const useApp = create<AppState>()(
       pendingGoalDraft: null,
       notificationsBump: 0,
       themeMode: "system",
+      budgetMode: "monthly",
       dashboardLayout: DEFAULT_DASHBOARD_LAYOUT,
       dismissedAccountsLinksCallout: false,
       setActiveSpace: (id) => set({ activeSpaceId: id }),
@@ -66,6 +71,7 @@ export const useApp = create<AppState>()(
       setPendingGoalDraft: (draft) => set({ pendingGoalDraft: draft }),
       bumpNotifications: () => set((s) => ({ notificationsBump: s.notificationsBump + 1 })),
       setThemeMode: (mode) => set({ themeMode: mode }),
+      setBudgetMode: (mode) => set({ budgetMode: mode }),
       setDashboardLayout: (layout) => set({ dashboardLayout: layout }),
       resetDashboardLayout: () => set({ dashboardLayout: DEFAULT_DASHBOARD_LAYOUT }),
       dismissAccountsLinksCallout: () => set({ dismissedAccountsLinksCallout: true }),
@@ -77,6 +83,7 @@ export const useApp = create<AppState>()(
         activeSpaceId: s.activeSpaceId,
         sharedView: s.sharedView,
         themeMode: s.themeMode,
+        budgetMode: s.budgetMode,
         dashboardLayout: s.dashboardLayout,
         dismissedAccountsLinksCallout: s.dismissedAccountsLinksCallout,
       }),

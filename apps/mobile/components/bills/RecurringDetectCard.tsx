@@ -94,7 +94,7 @@ export function RecurringDetectCard({ pattern, palette, mode, busy, onAdd, onDis
               {pattern.merchantName}
             </Text>
             <Text style={{ fontFamily: fonts.ui, fontSize: 12.5, color: palette.ink2, marginTop: 4, lineHeight: 18 }}>
-              Charged{" "}
+              {pattern.isInbound ? "Receives" : "Charged"}{" "}
               <Text style={{ color: palette.ink1, fontWeight: "500" }}>{fmtMoneyDollars(Math.abs(pattern.medianCents))}</Text>
               {" on "}{cadenceLabel}
               {pattern.fromAccountLabel ? (
@@ -103,7 +103,7 @@ export function RecurringDetectCard({ pattern, palette, mode, busy, onAdd, onDis
                   <Text style={{ color: palette.ink1, fontWeight: "500" }}>{pattern.fromAccountLabel}</Text>
                 </>
               ) : null}
-              . Track it as a bill?
+              . Track it as {pattern.isInbound ? "an income event" : "a bill"}?
             </Text>
           </View>
         </View>
@@ -146,7 +146,7 @@ export function RecurringDetectCard({ pattern, palette, mode, busy, onAdd, onDis
             }}
           >
             <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.brandOn }}>
-              {busy ? "Adding…" : "Add as bill"}
+              {busy ? "Adding…" : `Add as ${pattern.isInbound ? "income" : "bill"}`}
             </Text>
           </Pressable>
           <Pressable
@@ -163,7 +163,7 @@ export function RecurringDetectCard({ pattern, palette, mode, busy, onAdd, onDis
             }}
           >
             <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink2 }}>
-              Not a bill
+              {pattern.isInbound ? "Not income" : "Not a bill"}
             </Text>
           </Pressable>
         </View>

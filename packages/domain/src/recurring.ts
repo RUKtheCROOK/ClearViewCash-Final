@@ -1,4 +1,14 @@
-import { addDays, addMonths, addYears, differenceInDays, format, parseISO } from "date-fns";
+import {
+  addDays,
+  addMonths,
+  addYears,
+  differenceInDays,
+  format,
+  parseISO,
+  subDays,
+  subMonths,
+  subYears,
+} from "date-fns";
 import type { Cadence, MoneyCents, Transaction, Uuid } from "@cvc/types";
 
 export interface RecurringGroup {
@@ -109,6 +119,38 @@ export function nextDueFromCadence(lastSeenIso: string, cadence: Cadence): strin
       break;
   }
   return format(next, "yyyy-MM-dd");
+}
+
+/**
+ * Inverse of nextDueFromCadence — used to revert a bill's next_due_at when a
+ * payment is undone and we don't have the prior value stored on the payment row.
+ * Note: end-of-month edge cases (e.g. Jan 31 → Feb 28 → Jan 28) cannot round-trip
+ * exactly via date-fns subMonths; callers should prefer the stored prev_next_due_at
+ * when available.
+ */
+export function prevDueFromCadence(currentNextDueIso: string, cadence: Cadence): string {
+  const current = parseISO(currentNextDueIso);
+  let prev: Date;
+  switch (cadence) {
+    case "weekly":
+      prev = subDays(current, 7);
+      break;
+    case "biweekly":
+      prev = subDays(current, 14);
+      break;
+    case "yearly":
+      prev = subYears(current, 1);
+      break;
+    case "once":
+      prev = current;
+      break;
+    case "monthly":
+    case "custom":
+    default:
+      prev = subMonths(current, 1);
+      break;
+  }
+  return format(prev, "yyyy-MM-dd");
 }
 
 function inferCadence(gaps: number[]): Cadence | null {

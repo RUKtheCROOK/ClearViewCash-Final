@@ -35,8 +35,10 @@ interface Props {
   palette: Palette;
   mode: ThemeMode;
   categorySuggestions: string[];
+  categories: import("@cvc/domain").Category[];
   onClose: () => void;
   onSaved: () => void;
+  onCategoryCreated?: (c: import("@cvc/domain").Category) => void;
 }
 
 export function TransactionDetailSheet({
@@ -48,8 +50,10 @@ export function TransactionDetailSheet({
   palette,
   mode,
   categorySuggestions,
+  categories,
   onClose,
   onSaved,
+  onCategoryCreated,
 }: Props) {
   const [splitOpen, setSplitOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -478,8 +482,10 @@ export function TransactionDetailSheet({
         sharedView={sharedView}
         hiddenInSpace={hiddenInSpace}
         categorySuggestions={categorySuggestions}
+        categories={categories}
         onClose={() => setEditOpen(false)}
         onSaved={onSaved}
+        onCategoryCreated={onCategoryCreated}
       />
     </Modal>
   );

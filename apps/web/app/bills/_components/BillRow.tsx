@@ -16,7 +16,7 @@ export interface BillRowData {
   payee_glyph: string | null;
   source: "manual" | "detected";
   recurring_group_id: string | null;
-  latest_payment: { paid_at: string; amount: number } | null;
+  latest_payment: { id: string; paid_at: string; amount: number; prev_next_due_at: string | null } | null;
 }
 
 interface Props {
@@ -26,10 +26,11 @@ interface Props {
   accountLabel: string | null;
   onClick: () => void;
   onMarkPaid?: (e: React.MouseEvent) => void;
+  onUnmarkPaid?: (e: React.MouseEvent) => void;
   paying?: boolean;
 }
 
-export function BillRow({ bill, bucket, todayIso, accountLabel, onClick, onMarkPaid, paying }: Props) {
+export function BillRow({ bill, bucket, todayIso, accountLabel, onClick, onMarkPaid, onUnmarkPaid, paying }: Props) {
   const branding = resolveBillBranding(bill);
   const dim = bucket === "paid";
   const amountColor = dim ? "var(--ink-3)" : "var(--ink-1)";
@@ -124,30 +125,35 @@ export function BillRow({ bill, bucket, todayIso, accountLabel, onClick, onMarkP
             </Badge>
           ) : null}
         </div>
-        {onMarkPaid && bucket !== "paid" ? (
-          <button
-            type="button"
-            disabled={paying}
-            onClick={(e) => {
-              e.stopPropagation();
-              onMarkPaid(e);
-            }}
-            style={{
-              marginTop: 4,
-              padding: "4px 10px",
-              borderRadius: 999,
-              border: "1px solid var(--line-firm)",
-              background: "var(--bg-surface)",
-              color: "var(--ink-2)",
-              fontFamily: "var(--font-ui)",
-              fontSize: 11,
-              fontWeight: 500,
-              cursor: paying ? "wait" : "pointer",
-            }}
-          >
-            {paying ? "Saving…" : "Mark paid"}
-          </button>
-        ) : null}
+        {(() => {
+          const isPaid = bucket === "paid";
+          const handler = isPaid ? onUnmarkPaid : onMarkPaid;
+          if (!handler) return null;
+          return (
+            <button
+              type="button"
+              disabled={paying}
+              onClick={(e) => {
+                e.stopPropagation();
+                handler(e);
+              }}
+              style={{
+                marginTop: 4,
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid var(--line-firm)",
+                background: "var(--bg-surface)",
+                color: "var(--ink-2)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: paying ? "wait" : "pointer",
+              }}
+            >
+              {paying ? "Saving…" : isPaid ? "Unmark paid" : "Mark paid"}
+            </button>
+          );
+        })()}
       </div>
     </div>
   );

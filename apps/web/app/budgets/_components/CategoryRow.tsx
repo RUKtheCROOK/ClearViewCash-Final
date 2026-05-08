@@ -12,6 +12,8 @@ export interface CategoryRowData {
   spentCents: number;
   limitCents: number;
   rolloverInCents: number;
+  /** Optional cadence suffix shown next to the cap (e.g. "mo", "wk", "paycheck"). */
+  periodSuffix?: string;
 }
 
 interface Props {
@@ -94,6 +96,7 @@ export function CategoryRow({ cat, isLast, onClick }: Props) {
           </Num>
           <div style={{ fontFamily: "var(--font-num)", fontSize: 10.5, color: "var(--ink-3)", marginTop: 2 }}>
             / {fmtMoneyShort(cat.limitCents)}
+            {cat.periodSuffix ? <span style={{ marginLeft: 2 }}>/{cat.periodSuffix}</span> : null}
           </div>
         </div>
       </div>

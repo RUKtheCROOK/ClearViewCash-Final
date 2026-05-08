@@ -4,17 +4,31 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@cvc/types/supabase.generated";
-import { getBudgets, getMySpaces, getTransactionsForView } from "@cvc/api-client";
 import {
+  getBudgets,
+  getIncomeEvents,
+  getIncomeReceiptsForSpace,
+  getMySpaces,
+  getTransactionsForView,
+  listCategoriesForSpace,
+} from "@cvc/api-client";
+import {
+  computePaycheckCycle,
   computeRolloverCents,
   computeSpentByCategory,
   effectiveLimit,
   suggestBudgets,
+  sumReceiptsInWindow,
+  type Category,
   type CategorizedTxn,
+  type IncomeForRollup,
+  type IncomeReceiptForRollup,
 } from "@cvc/domain";
 import { effectiveSharedView, type SpaceMember } from "../../lib/view";
 import { EditPanel, type EditableBudget } from "./EditPanel";
 import { MonthSelector } from "./_components/MonthSelector";
+import { ModeToggle, type BudgetMode } from "./_components/ModeToggle";
+import { PaycheckCycleSummary, PaycheckCycleEmpty } from "./_components/PaycheckCycleSummary";
 import { SummaryCard } from "./_components/SummaryCard";
 import { SuggestedBanner } from "./_components/SuggestedBanner";
 import { GroupLabel } from "./_components/GroupLabel";
@@ -46,10 +60,26 @@ export default function BudgetsPage() {
   const [rawSharedView, setRawSharedView] = useState(false);
   const [budgets, setBudgets] = useState<EditableBudget[]>([]);
   const [txns60d, setTxns60d] = useState<CategorizedTxn[]>([]);
+  const [incomeEvents, setIncomeEvents] = useState<IncomeForRollup[]>([]);
+  const [incomeReceipts, setIncomeReceipts] = useState<IncomeReceiptForRollup[]>([]);
   const [editing, setEditing] = useState<EditableBudget | null>(null);
   const [seedCategory, setSeedCategory] = useState<string | null>(null);
+  const [seedCategoryId, setSeedCategoryId] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [panelOpen, setPanelOpen] = useState(false);
   const [reloadCount, setReloadCount] = useState(0);
+  const [mode, setMode] = useState<BudgetMode>("monthly");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("cvc-budgets-mode");
+    if (stored === "monthly" || stored === "paycheck") setMode(stored);
+  }, []);
+
+  function setModeAndPersist(next: BudgetMode) {
+    setMode(next);
+    if (typeof window !== "undefined") localStorage.setItem("cvc-budgets-mode", next);
+  }
 
   useEffect(() => {
     (async () => {
@@ -89,6 +119,9 @@ export default function BudgetsPage() {
     getBudgets(supabase, activeSpaceId).then((rows) => {
       setBudgets(rows as unknown as EditableBudget[]);
     });
+    listCategoriesForSpace(supabase, activeSpaceId).then((rows) =>
+      setCategories(rows as unknown as Category[]),
+    );
     const since = new Date();
     since.setUTCMonth(since.getUTCMonth() - 1);
     since.setUTCDate(1);
@@ -97,9 +130,17 @@ export default function BudgetsPage() {
       sharedView,
       restrictToOwnerId,
       since: since.toISOString().slice(0, 10),
-      fields: "category, amount, posted_at",
+      fields: "category, category_id, amount, posted_at",
       limit: 2000,
     }).then((rows) => setTxns60d(rows as unknown as CategorizedTxn[]));
+    getIncomeEvents(supabase, activeSpaceId).then((rows) =>
+      setIncomeEvents(rows as unknown as IncomeForRollup[]),
+    );
+    const ninety = new Date();
+    ninety.setUTCDate(ninety.getUTCDate() - 90);
+    getIncomeReceiptsForSpace(supabase, activeSpaceId, {
+      sinceIso: ninety.toISOString().slice(0, 10),
+    }).then((rows) => setIncomeReceipts(rows as unknown as IncomeReceiptForRollup[]));
   }, [signedIn, activeSpaceId, sharedView, restrictToOwnerId, reloadCount]);
 
   const today = useMemo(() => new Date(), []);
@@ -109,18 +150,58 @@ export default function BudgetsPage() {
   const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
   const monthLabel = MONTHS_FULL[monthIdx] ?? "";
   const monthIso = useMemo(() => new Date(Date.UTC(year, monthIdx, 1)).toISOString().slice(0, 10), [year, monthIdx]);
-
-  const spent = useMemo(
-    () => computeSpentByCategory(txns60d.filter((t) => t.posted_at >= monthIso)),
-    [txns60d, monthIso],
+  const todayIso = useMemo(() => today.toISOString().slice(0, 10), [today]);
+  const eomIso = useMemo(
+    () => new Date(Date.UTC(year, monthIdx + 1, 0)).toISOString().slice(0, 10),
+    [year, monthIdx],
   );
 
+  const cycle = useMemo(
+    () => computePaycheckCycle(incomeEvents, incomeReceipts, todayIso),
+    [incomeEvents, incomeReceipts, todayIso],
+  );
+  const inPaycheck = mode === "paycheck" && cycle !== null;
+
+  const windowStartIso = inPaycheck ? cycle!.startIso : monthIso;
+  const windowEndIso = inPaycheck ? cycle!.endIso : eomIso;
+
+  const windowTxns = useMemo(
+    () => txns60d.filter((t) => t.posted_at >= windowStartIso && t.posted_at <= windowEndIso),
+    [txns60d, windowStartIso, windowEndIso],
+  );
+
+  const spent = useMemo(() => computeSpentByCategory(windowTxns), [windowTxns]);
+
+  const receivedCents = useMemo(() => {
+    if (!inPaycheck) return 0;
+    return sumReceiptsInWindow(incomeReceipts, cycle!.startIso, todayIso);
+  }, [inPaycheck, incomeReceipts, cycle, todayIso]);
+
+  // In monthly mode, only show monthly + weekly budgets (paycheck-period budgets
+  // don't fit a calendar window). In paycheck mode, show all budgets so the user
+  // can see how cycle spending compares to both per-paycheck and monthly caps.
+  const visibleBudgets = useMemo(() => {
+    if (mode === "monthly") return budgets.filter((b) => b.period !== "paycheck");
+    return budgets;
+  }, [budgets, mode]);
+
   const rows: CategoryRowData[] = useMemo(() => {
-    return budgets.map((b) => {
+    return visibleBudgets.map((b) => {
       const branding = resolveCategoryBranding(b.category);
       const used = spent[b.category] ?? 0;
-      const rollover = computeRolloverCents(b, txns60d);
+      // Rollover is only meaningful for monthly budgets viewed in monthly mode.
+      // In paycheck mode the prior-calendar-month math is incoherent against a
+      // shifting cycle window, so we suppress it.
+      const rollover = mode === "paycheck" ? 0 : computeRolloverCents(b, txns60d);
       const cap = effectiveLimit(b, rollover);
+      const periodSuffix =
+        mode === "paycheck"
+          ? b.period === "paycheck"
+            ? "paycheck"
+            : b.period === "weekly"
+            ? "wk"
+            : "mo"
+          : undefined;
       return {
         id: b.id,
         name: b.category,
@@ -129,9 +210,10 @@ export default function BudgetsPage() {
         spentCents: used,
         limitCents: cap,
         rolloverInCents: rollover,
+        periodSuffix,
       };
     });
-  }, [budgets, spent, txns60d]);
+  }, [visibleBudgets, spent, txns60d, mode]);
 
   const overRows = rows.filter((r) => classifyState(r.spentCents, r.limitCents) === "over");
   const nearRows = rows.filter((r) => classifyState(r.spentCents, r.limitCents) === "near");
@@ -142,12 +224,14 @@ export default function BudgetsPage() {
 
   const existing = useMemo(() => new Set(budgets.map((b) => b.category)), [budgets]);
   const suggestion = useMemo(() => {
-    const monthTxns = txns60d.filter((t) => t.posted_at >= monthIso);
-    const ranked = suggestBudgets(monthTxns, existing);
+    // Suggestions look at recent outflows in the current window and surface the
+    // top untracked category. Always derived from the active window so the
+    // recommendation matches what the user is currently looking at.
+    const ranked = suggestBudgets(windowTxns, existing);
     if (ranked.length === 0) return null;
     const top = ranked[0];
     if (!top) return null;
-    const txnCount = monthTxns.filter(
+    const txnCount = windowTxns.filter(
       (t) => t.amount < 0 && (t.category ?? "") === top.category,
     ).length;
     return {
@@ -156,7 +240,7 @@ export default function BudgetsPage() {
       txnCount,
       hint: null as string | null,
     };
-  }, [txns60d, existing, monthIso]);
+  }, [windowTxns, existing]);
 
   function openCreate(seed?: string | null) {
     setEditing(null);
@@ -320,14 +404,42 @@ export default function BudgetsPage() {
           </div>
         ) : (
           <>
-            <MonthSelector monthIdx={monthIdx} year={year} />
+            <ModeToggle value={mode} onChange={setModeAndPersist} />
 
-            <SummaryCard
-              spentCents={totalSpent}
-              totalCents={totalLimit}
-              todayDay={todayDay}
-              daysInMonth={daysInMonth}
-            />
+            {mode === "paycheck" ? (
+              cycle ? (
+                <PaycheckCycleSummary
+                  receivedCents={receivedCents}
+                  spentCents={totalSpent}
+                  daysUntilNext={cycle.daysUntilNext}
+                  startIso={cycle.startIso}
+                  endIso={cycle.endIso}
+                  startIsFromReceipt={cycle.startIsFromReceipt}
+                  cadenceLabel={cycle.cadence}
+                />
+              ) : (
+                <PaycheckCycleEmpty
+                  reason={
+                    incomeEvents.length === 0
+                      ? "no-income"
+                      : incomeEvents.every((i) => i.paused_at != null)
+                      ? "all-paused"
+                      : "no-paycheck"
+                  }
+                  onAddIncome={() => router.push("/income")}
+                />
+              )
+            ) : (
+              <>
+                <MonthSelector monthIdx={monthIdx} year={year} />
+                <SummaryCard
+                  spentCents={totalSpent}
+                  totalCents={totalLimit}
+                  todayDay={todayDay}
+                  daysInMonth={daysInMonth}
+                />
+              </>
+            )}
 
             {suggestion ? (
               <SuggestedBanner
@@ -394,7 +506,9 @@ export default function BudgetsPage() {
             </div>
 
             <p style={{ marginTop: 10, padding: "0 24px", textAlign: "center", fontFamily: "var(--font-ui)", fontSize: 11, color: "var(--ink-4)", lineHeight: 1.5 }}>
-              {monthLabel} {year} · {activeSpace?.name ?? "Personal"}
+              {mode === "paycheck" && cycle
+                ? `Paycheck cycle · ${activeSpace?.name ?? "Personal"}`
+                : `${monthLabel} ${year} · ${activeSpace?.name ?? "Personal"}`}
             </p>
           </>
         )}
@@ -406,10 +520,13 @@ export default function BudgetsPage() {
         spaceId={activeSpaceId}
         budget={editing}
         seedCategory={seedCategory}
+        seedCategoryId={seedCategoryId}
         recentTxns={txns60d}
         existingCategories={budgets.map((b) => b.category)}
+        categories={categories}
         onClose={() => setPanelOpen(false)}
         onSaved={() => setReloadCount((c) => c + 1)}
+        onCategoryCreated={(c) => setCategories((prev) => [...prev, c])}
       />
     </main>
   );

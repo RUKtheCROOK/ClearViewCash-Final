@@ -198,6 +198,7 @@ export interface BillPaymentSummary {
   amount: number;
   paid_at: string;
   status: "paid" | "overdue" | "skipped";
+  prev_next_due_at: string | null;
 }
 
 export type BillListRow = EditableBill & {

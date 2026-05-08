@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Button, Card, HStack, Money, Stack, Text, colors, radius, space } from "@cvc/ui";
+import { Button, Card, HStack, I, Money, Stack, Text, colors, radius, space, type IconKey } from "@cvc/ui";
 import {
   deleteAccount as deleteAccountRow,
   getAccount,
@@ -11,8 +11,12 @@ import {
   updateAccountSettings,
 } from "@cvc/api-client";
 import {
+  ACCOUNT_ICON_KEYS,
   accountBalanceTone,
   accountDisplayName,
+  defaultAccountIcon,
+  accountKind,
+  isAccountIconKey,
   isValidHexColor,
   readableTextOn,
 } from "@cvc/domain";
@@ -25,9 +29,11 @@ interface AccountDetail {
   display_name: string | null;
   mask: string | null;
   type: string;
+  subtype?: string | null;
   current_balance: number | null;
   plaid_item_id: string | null;
   color: string | null;
+  icon: string | null;
 }
 
 interface ItemDetail {
@@ -62,6 +68,7 @@ export default function AccountDetail() {
 
   const [nameInput, setNameInput] = useState("");
   const [colorInput, setColorInput] = useState("");
+  const [iconInput, setIconInput] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -73,6 +80,7 @@ export default function AccountDetail() {
       setAccount(acc);
       setNameInput(acc?.display_name ?? "");
       setColorInput(acc?.color ?? "");
+      setIconInput(acc?.icon ?? null);
       if (acc?.plaid_item_id) {
         const [itm, siblings] = await Promise.all([
           getPlaidItem(supabase, acc.plaid_item_id),
@@ -158,11 +166,13 @@ export default function AccountDetail() {
         id: account.id,
         display_name: trimmedName.length === 0 ? null : trimmedName,
         color: trimmedColor.length === 0 ? null : trimmedColor,
+        icon: isAccountIconKey(iconInput) ? iconInput : null,
       });
       const refreshed = (await getAccount(supabase, account.id)) as AccountDetail | null;
       setAccount(refreshed);
       setNameInput(refreshed?.display_name ?? "");
       setColorInput(refreshed?.color ?? "");
+      setIconInput(refreshed?.icon ?? null);
       setSaveMessage("Saved");
     } catch (e) {
       setSaveError((e as Error).message);
@@ -181,11 +191,13 @@ export default function AccountDetail() {
         id: account.id,
         display_name: null,
         color: null,
+        icon: null,
       });
       const refreshed = (await getAccount(supabase, account.id)) as AccountDetail | null;
       setAccount(refreshed);
       setNameInput("");
       setColorInput("");
+      setIconInput(null);
       setSaveMessage("Cleared");
     } catch (e) {
       setSaveError((e as Error).message);
@@ -344,6 +356,58 @@ export default function AccountDetail() {
               Enter a valid hex like #0EA5E9 or leave blank.
             </Text>
           ) : null}
+
+          <Text variant="label">Icon</Text>
+          <Text variant="muted" style={{ fontSize: 12 }}>
+            Default is the {defaultAccountIcon(accountKind({ type: account.type, subtype: account.subtype ?? null }))} icon for {account.type} accounts.
+          </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 8,
+            }}
+          >
+            <Pressable
+              onPress={() => setIconInput(null)}
+              accessibilityLabel="Use default icon"
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: radius.md,
+                borderWidth: iconInput == null ? 2 : 1,
+                borderColor: iconInput == null ? colors.text : colors.border,
+                backgroundColor: colors.surface,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ fontSize: 10, color: colors.textMuted }}>auto</Text>
+            </Pressable>
+            {ACCOUNT_ICON_KEYS.map((key) => {
+              const Icon = I[key as IconKey];
+              const selected = iconInput === key;
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => setIconInput(key)}
+                  accessibilityLabel={`Use ${key} icon`}
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: radius.md,
+                    borderWidth: selected ? 2 : 1,
+                    borderColor: selected ? colors.text : colors.border,
+                    backgroundColor: colors.surface,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Icon color={colors.text} size={20} />
+                </Pressable>
+              );
+            })}
+          </View>
 
           <HStack gap="sm">
             <Button

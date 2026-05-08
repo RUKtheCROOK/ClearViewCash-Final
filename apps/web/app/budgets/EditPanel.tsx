@@ -3,19 +3,33 @@ import { useEffect, useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@cvc/types/supabase.generated";
 import { deleteBudget, upsertBudget } from "@cvc/api-client";
-import { suggestBudgets, type CategorizedTxn } from "@cvc/domain";
-import { BudgetCategoryIcon, resolveCategoryBranding } from "./_components/budgetGlyphs";
+import { suggestBudgets, type Category, type CategorizedTxn } from "@cvc/domain";
+import { CategoryDisc } from "../../components/CategoryDisc";
+import { CategoryPicker } from "../../components/CategoryPicker";
 import { Num, fmtMoneyShort } from "./_components/Num";
 
-export type BudgetPeriod = "monthly" | "weekly";
+export type BudgetPeriod = "monthly" | "weekly" | "paycheck";
 
 export interface EditableBudget {
   id: string;
   category: string;
+  category_id?: string | null;
   limit_amount: number;
   period: BudgetPeriod;
   rollover: boolean;
 }
+
+const PERIOD_LABEL_LIMIT: Record<BudgetPeriod, string> = {
+  monthly: "MONTHLY LIMIT",
+  weekly: "WEEKLY LIMIT",
+  paycheck: "PER-PAYCHECK LIMIT",
+};
+
+const PERIOD_LABEL_PICKER: Record<BudgetPeriod, string> = {
+  monthly: "Monthly",
+  weekly: "Weekly",
+  paycheck: "Per Paycheck",
+};
 
 interface Props {
   client: SupabaseClient<Database>;
@@ -23,10 +37,13 @@ interface Props {
   spaceId: string | null;
   budget: EditableBudget | null;
   seedCategory?: string | null;
+  seedCategoryId?: string | null;
   recentTxns: ReadonlyArray<CategorizedTxn>;
   existingCategories: ReadonlyArray<string>;
+  categories: ReadonlyArray<Category>;
   onClose: () => void;
   onSaved: () => void;
+  onCategoryCreated?: (c: Category) => void;
 }
 
 export function EditPanel({
@@ -35,12 +52,16 @@ export function EditPanel({
   spaceId,
   budget,
   seedCategory,
+  seedCategoryId,
   recentTxns,
   existingCategories,
+  categories,
   onClose,
   onSaved,
+  onCategoryCreated,
 }: Props) {
   const [category, setCategory] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [limitDollars, setLimitDollars] = useState("");
   const [period, setPeriod] = useState<BudgetPeriod>("monthly");
   const [rollover, setRollover] = useState(false);
@@ -52,19 +73,24 @@ export function EditPanel({
     if (!open) return;
     if (budget) {
       setCategory(budget.category);
+      setCategoryId(budget.category_id ?? null);
       setLimitDollars((budget.limit_amount / 100).toFixed(0));
       setPeriod(budget.period);
       setRollover(budget.rollover);
     } else {
       setCategory(seedCategory ?? "");
+      setCategoryId(seedCategoryId ?? null);
       setLimitDollars("");
       setPeriod("monthly");
       setRollover(false);
     }
     setError(null);
-  }, [open, budget, seedCategory]);
+  }, [open, budget, seedCategory, seedCategoryId]);
 
-  const branding = useMemo(() => resolveCategoryBranding(category || "Food & dining"), [category]);
+  const pickedCategory = useMemo(
+    () => (categoryId ? categories.find((c) => c.id === categoryId) ?? null : null),
+    [categoryId, categories],
+  );
 
   const suggestions = useMemo(() => {
     if (budget) return [];
@@ -112,6 +138,7 @@ export function EditPanel({
         ...(budget ? { id: budget.id } : {}),
         space_id: spaceId,
         category: trimmed,
+        category_id: categoryId,
         limit_amount: Math.round(dollars * 100),
         period,
         rollover,
@@ -188,42 +215,38 @@ export function EditPanel({
         </div>
 
         {/* Hero */}
-        <div style={{ textAlign: "center", paddingTop: 8 }}>
-          <div style={{ display: "inline-block" }}>
-            <BudgetCategoryIcon hue={branding.hue} glyph={branding.glyph} size={64} radius={16} />
+        <div style={{ paddingTop: 8 }}>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+            {pickedCategory ? (
+              <CategoryDisc category={pickedCategory} size={64} />
+            ) : (
+              <span
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 999,
+                  background: "var(--bg-canvas)",
+                  border: "1px dashed var(--line-soft)",
+                }}
+              />
+            )}
           </div>
-          <div
-            style={{
-              marginTop: 14,
-              padding: "8px 14px",
-              borderRadius: 12,
-              background: "var(--bg-surface)",
-              border: "1px solid var(--line-soft)",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              maxWidth: 320,
-              width: "100%",
-            }}
-          >
-            <input
-              type="text"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder="e.g. Groceries"
-              style={{
-                flex: 1,
-                border: 0,
-                outline: 0,
-                background: "transparent",
-                textAlign: "center",
-                fontFamily: "var(--font-ui)",
-                fontSize: 16,
-                fontWeight: 500,
-                color: "var(--ink-1)",
-              }}
-            />
-          </div>
+          {spaceId ? (
+            <div style={{ maxWidth: 360, margin: "0 auto" }}>
+              <CategoryPicker
+                value={categoryId}
+                onChange={(id, cat) => {
+                  setCategoryId(id);
+                  setCategory(cat?.name ?? "");
+                }}
+                categories={[...categories]}
+                spaceId={spaceId}
+                placeholder="Pick a category"
+                allowCreate
+                onCategoryCreated={onCategoryCreated}
+              />
+            </div>
+          ) : null}
         </div>
 
         {/* Suggestions */}
@@ -272,7 +295,7 @@ export function EditPanel({
         {/* Limit */}
         <div style={{ marginTop: 24, textAlign: "center" }}>
           <div style={{ fontFamily: "var(--font-num)", fontSize: 10.5, color: "var(--ink-3)", letterSpacing: "0.08em", fontWeight: 600 }}>
-            {period === "monthly" ? "MONTHLY LIMIT" : "WEEKLY LIMIT"}
+            {PERIOD_LABEL_LIMIT[period]}
           </div>
           <div
             style={{
@@ -338,16 +361,18 @@ export function EditPanel({
               overflow: "hidden",
             }}
           >
-            <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, opacity: period === "paycheck" ? 0.5 : 1 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontFamily: "var(--font-ui)", fontSize: 13.5, fontWeight: 500, color: "var(--ink-1)" }}>
                   Rollover unspent
                 </div>
                 <div style={{ marginTop: 2, fontFamily: "var(--font-ui)", fontSize: 11, color: "var(--ink-3)" }}>
-                  Carry leftover into next month
+                  {period === "paycheck"
+                    ? "Unavailable for paycheck budgets"
+                    : "Carry leftover into next month"}
                 </div>
               </div>
-              <Toggle on={rollover} onChange={setRollover} />
+              <Toggle on={rollover && period !== "paycheck"} onChange={setRollover} disabled={period === "paycheck"} />
             </div>
             <div style={{ height: 1, background: "var(--line-soft)" }} />
             <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
@@ -357,13 +382,16 @@ export function EditPanel({
                 </div>
               </div>
               <div style={{ display: "flex", borderRadius: 999, background: "var(--bg-tinted)", padding: 2 }}>
-                {(["monthly", "weekly"] as BudgetPeriod[]).map((p) => {
+                {(["monthly", "weekly", "paycheck"] as BudgetPeriod[]).map((p) => {
                   const active = period === p;
                   return (
                     <button
                       key={p}
                       type="button"
-                      onClick={() => setPeriod(p)}
+                      onClick={() => {
+                        setPeriod(p);
+                        if (p === "paycheck") setRollover(false);
+                      }}
                       style={{
                         padding: "5px 10px",
                         borderRadius: 999,
@@ -376,17 +404,25 @@ export function EditPanel({
                         color: active ? "var(--ink-1)" : "var(--ink-3)",
                       }}
                     >
-                      {p === "monthly" ? "Monthly" : "Weekly"}
+                      {PERIOD_LABEL_PICKER[p]}
                     </button>
                   );
                 })}
               </div>
             </div>
+            {period === "paycheck" ? (
+              <>
+                <div style={{ height: 1, background: "var(--line-soft)" }} />
+                <div style={{ padding: "10px 14px", fontFamily: "var(--font-ui)", fontSize: 11.5, color: "var(--ink-3)", lineHeight: 1.4 }}>
+                  Resets every paycheck. Cycle length comes from your income cadence on the Income tab.
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
 
         {/* Rollover explainer */}
-        {rollover ? (
+        {rollover && period !== "paycheck" ? (
           <div
             style={{
               marginTop: 14,
@@ -454,12 +490,13 @@ export function EditPanel({
   );
 }
 
-function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
-      onClick={() => onChange(!on)}
+      onClick={() => !disabled && onChange(!on)}
       aria-pressed={on}
+      disabled={disabled}
       style={{
         width: 38,
         height: 22,
@@ -468,7 +505,8 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
         position: "relative",
         flexShrink: 0,
         border: 0,
-        cursor: "pointer",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.6 : 1,
       }}
     >
       <span

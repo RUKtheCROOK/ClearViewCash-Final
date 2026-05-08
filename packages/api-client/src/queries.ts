@@ -96,13 +96,29 @@ export async function getTransactionsForView(
     fields?: string;
     accountIds?: string[];
     categories?: string[];
+    /** Filter by `transactions.category_id`. Pass null in the array to also match Uncategorized rows. */
+    categoryIds?: Array<string | null>;
     ownerUserIds?: string[];
   },
 ) {
   const fields =
     opts.fields ??
-    "id, merchant_name, display_name, amount, posted_at, category, pending, is_recurring, account_id, owner_user_id, note";
+    "id, merchant_name, display_name, amount, posted_at, category, category_id, pending, is_recurring, account_id, owner_user_id, note";
   const limit = opts.limit ?? 100;
+
+  const applyCategoryIdFilter = <Q extends { in: any; or: any; is: any }>(q: Q): Q => {
+    const ids = opts.categoryIds;
+    if (!ids?.length) return q;
+    const nonNull = ids.filter((v): v is string => v !== null);
+    const includesNull = ids.some((v) => v === null);
+    if (includesNull && nonNull.length === 0) {
+      return q.is("category_id", null) as Q;
+    }
+    if (includesNull) {
+      return q.or(`category_id.in.(${nonNull.join(",")}),category_id.is.null`) as Q;
+    }
+    return q.in("category_id", nonNull) as Q;
+  };
 
   if (opts.sharedView && opts.spaceId) {
     const [{ data: shares }, { data: hidden }] = await Promise.all([
@@ -132,6 +148,7 @@ export async function getTransactionsForView(
       .limit(limit);
     if (opts.since) q = q.gte("posted_at", opts.since);
     if (opts.categories?.length) q = q.in("category", opts.categories);
+    q = applyCategoryIdFilter(q);
     if (opts.ownerUserIds?.length) q = q.in("owner_user_id", opts.ownerUserIds);
     if (hiddenIds.length) q = q.not("id", "in", `(${hiddenIds.join(",")})`);
     const { data, error } = await q;
@@ -161,6 +178,7 @@ export async function getTransactionsForView(
       .limit(limit);
     if (opts.since) q = q.gte("posted_at", opts.since);
     if (opts.categories?.length) q = q.in("category", opts.categories);
+    q = applyCategoryIdFilter(q);
     if (opts.ownerUserIds?.length) q = q.in("owner_user_id", opts.ownerUserIds);
     const { data, error } = await q;
     if (error) throw error;
@@ -175,6 +193,7 @@ export async function getTransactionsForView(
   if (opts.since) q = q.gte("posted_at", opts.since);
   if (opts.accountIds?.length) q = q.in("account_id", opts.accountIds);
   if (opts.categories?.length) q = q.in("category", opts.categories);
+  q = applyCategoryIdFilter(q);
   if (opts.ownerUserIds?.length) q = q.in("owner_user_id", opts.ownerUserIds);
   const { data, error } = await q;
   if (error) throw error;
@@ -187,7 +206,7 @@ export async function listSplitsForTransaction(
 ) {
   const { data, error } = await client
     .from("transaction_splits")
-    .select("id, transaction_id, space_id, category, amount, created_at")
+    .select("id, transaction_id, space_id, category, category_id, amount, created_at")
     .eq("transaction_id", transactionId)
     .order("created_at", { ascending: true });
   if (error) throw error;
@@ -269,7 +288,7 @@ export async function getAccount(client: CvcSupabaseClient, accountId: string) {
   const { data, error } = await client
     .from("accounts")
     .select(
-      "id, name, display_name, mask, type, current_balance, owner_user_id, plaid_item_id, color",
+      "id, name, display_name, mask, type, current_balance, owner_user_id, plaid_item_id, color, icon",
     )
     .eq("id", accountId)
     .maybeSingle();
@@ -280,7 +299,7 @@ export async function getAccount(client: CvcSupabaseClient, accountId: string) {
 export async function getAccountsForPlaidItem(client: CvcSupabaseClient, plaidItemRowId: string) {
   const { data, error } = await client
     .from("accounts")
-    .select("id, name, display_name, mask, type, current_balance, plaid_item_id, color")
+    .select("id, name, display_name, mask, type, current_balance, plaid_item_id, color, icon")
     .eq("plaid_item_id", plaidItemRowId)
     .order("name", { ascending: true });
   if (error) throw error;
@@ -314,6 +333,7 @@ export interface BillPaymentRow {
   paid_at: string;
   status: "paid" | "overdue" | "skipped";
   transaction_id: string | null;
+  prev_next_due_at: string | null;
 }
 
 /**
@@ -327,7 +347,7 @@ export async function getBillsWithLatestPayment(client: CvcSupabaseClient, space
   const billIds = bills.map((b: { id: string }) => b.id);
   const { data: payments, error } = await client
     .from("bill_payments")
-    .select("id, bill_id, amount, paid_at, status, transaction_id")
+    .select("id, bill_id, amount, paid_at, status, transaction_id, prev_next_due_at")
     .in("bill_id", billIds)
     .order("paid_at", { ascending: false });
   if (error) throw error;
@@ -344,7 +364,7 @@ export async function getBillsWithLatestPayment(client: CvcSupabaseClient, space
 export async function getBillPayments(client: CvcSupabaseClient, billId: string) {
   const { data, error } = await client
     .from("bill_payments")
-    .select("id, bill_id, amount, paid_at, status, transaction_id")
+    .select("id, bill_id, amount, paid_at, status, transaction_id, prev_next_due_at")
     .eq("bill_id", billId)
     .order("paid_at", { ascending: false });
   if (error) throw error;
@@ -546,6 +566,62 @@ export async function getPaymentLinks(client: CvcSupabaseClient) {
 
 export async function getBudgets(client: CvcSupabaseClient, spaceId: string) {
   const { data, error } = await client.from("budgets").select("*").eq("space_id", spaceId);
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────
+
+/**
+ * List categories for a space. Skips archived rows by default; pass
+ * `includeArchived: true` for the settings-page archive view.
+ */
+export async function listCategoriesForSpace(
+  client: CvcSupabaseClient,
+  spaceId: string,
+  opts: { includeArchived?: boolean } = {},
+) {
+  let q = client
+    .from("categories")
+    .select("*")
+    .eq("space_id", spaceId)
+    .order("sort_order", { ascending: true });
+  if (!opts.includeArchived) q = q.is("archived_at", null);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Resolve categories visible from the active view.
+ *
+ * Transactions are owner-scoped — their `category_id` lives in the owner's
+ * default space, not necessarily the active one. To render shared-view
+ * transactions correctly, we union categories across the active space and
+ * each visible-owner's default space. `ownerUserIds` is typically the set of
+ * `transactions.owner_user_id` values present in the current page.
+ */
+export async function listCategoriesForView(
+  client: CvcSupabaseClient,
+  opts: { spaceId: string; ownerUserIds?: string[]; includeArchived?: boolean },
+) {
+  const spaceIds = new Set<string>([opts.spaceId]);
+  if (opts.ownerUserIds && opts.ownerUserIds.length > 0) {
+    const { data: users } = await client
+      .from("users")
+      .select("id, default_space_id")
+      .in("id", opts.ownerUserIds);
+    for (const u of users ?? []) {
+      if (u.default_space_id) spaceIds.add(u.default_space_id);
+    }
+  }
+  let q = client
+    .from("categories")
+    .select("*")
+    .in("space_id", Array.from(spaceIds))
+    .order("sort_order", { ascending: true });
+  if (!opts.includeArchived) q = q.is("archived_at", null);
+  const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
 }

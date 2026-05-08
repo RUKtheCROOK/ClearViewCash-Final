@@ -1,9 +1,11 @@
 import type { MoneyCents } from "@cvc/types";
+import { UNCATEGORIZED_BUCKET_ID } from "./category";
 
-export type BudgetPeriod = "monthly" | "weekly";
+export type BudgetPeriod = "monthly" | "weekly" | "paycheck";
 
 export interface BudgetLike {
   category: string;
+  category_id?: string | null;
   limit_amount: MoneyCents;
   period: BudgetPeriod;
   rollover: boolean;
@@ -11,6 +13,7 @@ export interface BudgetLike {
 
 export interface CategorizedTxn {
   category: string | null;
+  category_id?: string | null;
   amount: MoneyCents;
   posted_at: string;
 }
@@ -30,6 +33,24 @@ export function computeSpentByCategory(
     if (t.amount >= 0) continue;
     const cat = t.category ?? UNCATEGORIZED;
     totals[cat] = (totals[cat] ?? 0) + Math.abs(t.amount);
+  }
+  return totals;
+}
+
+/**
+ * ID-keyed sibling of `computeSpentByCategory`. Buckets outflows by
+ * `category_id`, falling back to `UNCATEGORIZED_BUCKET_ID` when null. Use this
+ * when the caller has a `Map<id, Category>` available — name-based bucketing
+ * collapses category renames into a single bucket which loses history.
+ */
+export function computeSpentByCategoryId(
+  txns: ReadonlyArray<Pick<CategorizedTxn, "category_id" | "amount">>,
+): Record<string, MoneyCents> {
+  const totals: Record<string, MoneyCents> = {};
+  for (const t of txns) {
+    if (t.amount >= 0) continue;
+    const key = t.category_id ?? UNCATEGORIZED_BUCKET_ID;
+    totals[key] = (totals[key] ?? 0) + Math.abs(t.amount);
   }
   return totals;
 }

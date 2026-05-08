@@ -18,7 +18,7 @@ export interface BillRowDataMobile {
   payee_glyph: string | null;
   source: "manual" | "detected";
   recurring_group_id: string | null;
-  latest_payment: { paid_at: string; amount: number } | null;
+  latest_payment: { id: string; paid_at: string; amount: number; prev_next_due_at: string | null } | null;
 }
 
 interface Props {
@@ -30,10 +30,11 @@ interface Props {
   mode: "light" | "dark";
   onPress: () => void;
   onMarkPaid?: () => void;
+  onUnmarkPaid?: () => void;
   paying?: boolean;
 }
 
-export function BillRow({ bill, bucket, todayIso, accountLabel, palette, mode, onPress, onMarkPaid, paying }: Props) {
+export function BillRow({ bill, bucket, todayIso, accountLabel, palette, mode, onPress, onMarkPaid, onUnmarkPaid, paying }: Props) {
   const branding = resolveBillBranding(bill);
   const dim = bucket === "paid";
   const amountColor = dim ? palette.ink3 : palette.ink1;
@@ -107,25 +108,30 @@ export function BillRow({ bill, bucket, todayIso, accountLabel, palette, mode, o
             </Badge>
           ) : null}
         </View>
-        {onMarkPaid && bucket !== "paid" ? (
-          <Pressable
-            onPress={onMarkPaid}
-            disabled={paying}
-            style={{
-              marginTop: 4,
-              paddingHorizontal: 10,
-              paddingVertical: 4,
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: palette.lineFirm,
-              backgroundColor: palette.surface,
-            }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: "500", color: palette.ink2, fontFamily: fonts.ui }}>
-              {paying ? "Saving…" : "Mark paid"}
-            </Text>
-          </Pressable>
-        ) : null}
+        {(() => {
+          const isPaid = bucket === "paid";
+          const handler = isPaid ? onUnmarkPaid : onMarkPaid;
+          if (!handler) return null;
+          return (
+            <Pressable
+              onPress={handler}
+              disabled={paying}
+              style={{
+                marginTop: 4,
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: palette.lineFirm,
+                backgroundColor: palette.surface,
+              }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: "500", color: palette.ink2, fontFamily: fonts.ui }}>
+                {paying ? "Saving…" : isPaid ? "Unmark paid" : "Mark paid"}
+              </Text>
+            </Pressable>
+          );
+        })()}
       </View>
     </Pressable>
   );

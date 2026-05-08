@@ -9,6 +9,7 @@ export interface ActivityTxn {
   amount: number;
   posted_at: string;
   category: string | null;
+  category_id?: string | null;
   pending: boolean;
   is_recurring: boolean;
   account_id: string;

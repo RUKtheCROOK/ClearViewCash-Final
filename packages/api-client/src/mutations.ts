@@ -1,5 +1,5 @@
 import type { Database } from "@cvc/types/supabase.generated";
-import { nextDueFromCadence, normalizeMerchant } from "@cvc/domain";
+import { nextDueFromCadence, normalizeMerchant, prevDueFromCadence } from "@cvc/domain";
 import type { Cadence } from "@cvc/types";
 import type { CvcSupabaseClient } from "./supabase-client";
 
@@ -175,11 +175,21 @@ export async function setTransactionShare(
 
 export async function updateTransactionCategory(
   client: CvcSupabaseClient,
-  args: { id: string; category: string | null; subcategory?: string | null },
+  args: {
+    id: string;
+    category: string | null;
+    category_id?: string | null;
+    subcategory?: string | null;
+  },
 ) {
-  const patch: { category: string | null; subcategory?: string | null } = {
+  const patch: {
+    category: string | null;
+    category_id?: string | null;
+    subcategory?: string | null;
+  } = {
     category: args.category,
   };
+  if (args.category_id !== undefined) patch.category_id = args.category_id;
   if (args.subcategory !== undefined) patch.subcategory = args.subcategory;
   const { data, error } = await client
     .from("transactions")
@@ -329,7 +339,11 @@ export async function upsertTransactionSplits(
   args: {
     transaction_id: string;
     space_id: string;
-    splits: Array<{ category: string; amount: number }>;
+    splits: Array<{
+      category?: string | null;
+      category_id?: string | null;
+      amount: number;
+    }>;
   },
 ) {
   await clearTransactionSplits(client, args.transaction_id);
@@ -337,7 +351,8 @@ export async function upsertTransactionSplits(
   const rows = args.splits.map((s) => ({
     transaction_id: args.transaction_id,
     space_id: args.space_id,
-    category: s.category,
+    category: s.category ?? null,
+    category_id: s.category_id ?? null,
     amount: s.amount,
   }));
   const { error } = await client.from("transaction_splits").insert(rows);
@@ -367,11 +382,21 @@ export async function deleteAccount(client: CvcSupabaseClient, accountId: string
  */
 export async function updateAccountSettings(
   client: CvcSupabaseClient,
-  args: { id: string; display_name?: string | null; color?: string | null },
+  args: {
+    id: string;
+    display_name?: string | null;
+    color?: string | null;
+    icon?: string | null;
+  },
 ) {
-  const patch: { display_name?: string | null; color?: string | null } = {};
+  const patch: {
+    display_name?: string | null;
+    color?: string | null;
+    icon?: string | null;
+  } = {};
   if (args.display_name !== undefined) patch.display_name = args.display_name;
   if (args.color !== undefined) patch.color = args.color;
+  if (args.icon !== undefined) patch.icon = args.icon;
   if (Object.keys(patch).length === 0) return null;
   const { data, error } = await client
     .from("accounts")
@@ -417,6 +442,7 @@ export async function recordBillPayment(
     paid_at: args.paid_at,
     transaction_id: args.transaction_id ?? null,
     status: "paid",
+    prev_next_due_at: args.advanceCycle === false ? null : args.current_next_due_at,
   });
   if (insErr) throw insErr;
   if (args.advanceCycle === false) return null;
@@ -424,6 +450,45 @@ export async function recordBillPayment(
   const { data, error: updErr } = await client
     .from("bills")
     .update({ next_due_at: advanced })
+    .eq("id", args.bill_id)
+    .select()
+    .single();
+  if (updErr) throw updErr;
+  return data;
+}
+
+/**
+ * Reverse a bill payment recorded by recordBillPayment. Deletes the payment
+ * row and rolls bills.next_due_at back to its prior value (using the payment
+ * row's stored prev_next_due_at when available, falling back to a cadence-based
+ * inverse for legacy rows).
+ *
+ * Two writes — delete the payment, then update the bill. Same caveat as
+ * recordBillPayment: callers should refetch after the await to reconcile
+ * if a network error lands between the two writes.
+ */
+export async function undoBillPayment(
+  client: CvcSupabaseClient,
+  args: {
+    payment_id: string;
+    bill_id: string;
+    cadence: Cadence;
+    current_next_due_at: string;
+    prev_next_due_at: string | null;
+  },
+) {
+  const reverted = args.prev_next_due_at
+    ?? prevDueFromCadence(args.current_next_due_at, args.cadence);
+
+  const { error: delErr } = await client
+    .from("bill_payments")
+    .delete()
+    .eq("id", args.payment_id);
+  if (delErr) throw delErr;
+
+  const { data, error: updErr } = await client
+    .from("bills")
+    .update({ next_due_at: reverted })
     .eq("id", args.bill_id)
     .select()
     .single();
@@ -753,5 +818,115 @@ export async function leaveSpace(client: CvcSupabaseClient, spaceId: string) {
     .eq("space_id", spaceId)
     .eq("user_id", user.user.id);
   if (error) throw error;
+}
+
+// ─── Categories (user-managed taxonomy per space) ────────────────────────
+//
+// Categories live on a space and are auto-seeded by trigger on space insert.
+// `is_system=true` rows can be renamed/recolored but not hard-deleted; the
+// guard_category_delete trigger raises on a delete attempt. Use archive/restore
+// (toggling archived_at) to hide a category without losing FK history.
+
+type CategoryRow = Tables["categories"]["Row"];
+type CategoryInsert = Tables["categories"]["Insert"];
+
+export async function createCategory(
+  client: CvcSupabaseClient,
+  args: {
+    space_id: string;
+    name: string;
+    icon: string;
+    color: string;
+    kind?: "expense" | "income" | "transfer";
+    sort_order?: number;
+  },
+): Promise<CategoryRow> {
+  const row: CategoryInsert = {
+    space_id: args.space_id,
+    name: args.name,
+    icon: args.icon,
+    color: args.color,
+    kind: args.kind ?? "expense",
+    ...(args.sort_order !== undefined ? { sort_order: args.sort_order } : {}),
+  };
+  const { data, error } = await client.from("categories").insert(row).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateCategory(
+  client: CvcSupabaseClient,
+  args: {
+    id: string;
+    name?: string;
+    icon?: string;
+    color?: string;
+    kind?: "expense" | "income" | "transfer";
+    sort_order?: number;
+  },
+): Promise<CategoryRow> {
+  const patch: Partial<Tables["categories"]["Update"]> = {};
+  if (args.name !== undefined) patch.name = args.name;
+  if (args.icon !== undefined) patch.icon = args.icon;
+  if (args.color !== undefined) patch.color = args.color;
+  if (args.kind !== undefined) patch.kind = args.kind;
+  if (args.sort_order !== undefined) patch.sort_order = args.sort_order;
+  const { data, error } = await client
+    .from("categories")
+    .update(patch)
+    .eq("id", args.id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** Soft-delete a category. Sets archived_at = now(); FK history preserved. */
+export async function archiveCategory(client: CvcSupabaseClient, id: string): Promise<CategoryRow> {
+  const { data, error } = await client
+    .from("categories")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function restoreCategory(client: CvcSupabaseClient, id: string): Promise<CategoryRow> {
+  const { data, error } = await client
+    .from("categories")
+    .update({ archived_at: null })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Hard-delete a non-system category. Returns an error from the DB if the row
+ * is `is_system=true` (the guard_category_delete trigger raises). Callers
+ * should generally prefer archiveCategory.
+ */
+export async function deleteCategory(client: CvcSupabaseClient, id: string): Promise<void> {
+  const { error } = await client.from("categories").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * Bulk-update sort_order for a list of category ids. Each id gets its index
+ * (×10 for headroom). Two writes minimum (one per id) — PostgREST has no
+ * batch-update primitive.
+ */
+export async function reorderCategories(
+  client: CvcSupabaseClient,
+  args: { space_id: string; ordered_ids: string[] },
+): Promise<void> {
+  await Promise.all(
+    args.ordered_ids.map((id, idx) =>
+      client.from("categories").update({ sort_order: (idx + 1) * 10 }).eq("id", id),
+    ),
+  );
 }
 

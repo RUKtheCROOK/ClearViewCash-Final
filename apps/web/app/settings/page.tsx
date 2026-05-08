@@ -210,6 +210,7 @@ export default function SettingsHome() {
           <Row mode={resolved} glyph="spaces" hue={30} title="Spaces & Members" value={`${spaceCount} ${spaceCount === 1 ? "space" : "spaces"}`} href="/settings/spaces" />
           <Row mode={resolved} glyph="bell" hue={75} title="Notifications" value="Manage" href="/settings/notifications" />
           <Row mode={resolved} glyph="shield" hue={155} title="Security" sub={securitySub} href="/settings/security" />
+          <Row mode={resolved} glyph="edit" hue={285} title="Categories" sub="Customize colors, icons, and names" href="/settings/categories" />
           <Row mode={resolved} glyph="card" hue={35} title="Payment Links" sub="Auto-pay credit cards from depository" last href="/settings/payment-links" />
         </Group>
 

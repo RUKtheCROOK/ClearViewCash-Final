@@ -8,7 +8,7 @@
 import { adminClient } from "./supabase-admin.ts";
 import { plaidAmountToCents, plaidClient } from "./plaid.ts";
 import { detectRecurring, normalizeMerchant } from "./recurring.ts";
-import { categorizeFromPlaid } from "./categorize.ts";
+import { resolveCategoryIdForPlaid } from "./categorize.ts";
 
 export interface SyncResult {
   added: number;
@@ -32,6 +32,10 @@ export async function syncPlaidItem(itemRowId: string): Promise<SyncResult> {
   let added = 0, modified = 0, removed = 0;
   let hasMore = true;
 
+  // Per-call cache of the owner's category seed_key→row map, keyed by user id.
+  // First lookup hits the DB; subsequent rows in the same sync are free.
+  const categoryCache = new Map<string, Map<string, { id: string; name: string; seed_key: string | null }>>();
+
   try {
     while (hasMore) {
       const res = await plaid.transactionsSync({
@@ -43,26 +47,36 @@ export async function syncPlaidItem(itemRowId: string): Promise<SyncResult> {
 
       const accountIdMap = await mapPlaidAccountIds(item.id);
 
-      const upserts = [...res.data.added, ...res.data.modified]
-        .map((t) => ({
-          account_id: accountIdMap.get(t.account_id) ?? null,
-          owner_user_id: item.owner_user_id,
-          plaid_transaction_id: t.transaction_id,
-          posted_at: t.date,
-          amount: plaidAmountToCents(t.amount),
-          merchant_name: t.merchant_name ?? t.name ?? null,
-          category: categorizeFromPlaid(t.personal_finance_category?.primary ?? null),
-          subcategory: t.personal_finance_category?.detailed ?? null,
-          pending: t.pending,
-        }))
-        .filter((u) => u.account_id);
+      const upserts = await Promise.all(
+        [...res.data.added, ...res.data.modified].map(async (t) => {
+          const { categoryId, categoryName } = await resolveCategoryIdForPlaid(
+            supa,
+            item.owner_user_id,
+            t.personal_finance_category?.primary ?? null,
+            categoryCache,
+          );
+          return {
+            account_id: accountIdMap.get(t.account_id) ?? null,
+            owner_user_id: item.owner_user_id,
+            plaid_transaction_id: t.transaction_id,
+            posted_at: t.date,
+            amount: plaidAmountToCents(t.amount),
+            merchant_name: t.merchant_name ?? t.name ?? null,
+            category: categoryName,
+            category_id: categoryId,
+            subcategory: t.personal_finance_category?.detailed ?? null,
+            pending: t.pending,
+          };
+        }),
+      );
+      const filtered = upserts.filter((u) => u.account_id);
 
-      if (upserts.length) {
+      if (filtered.length) {
         const { error } = await supa
           .from("transactions")
-          .upsert(upserts, { onConflict: "plaid_transaction_id" });
+          .upsert(filtered, { onConflict: "plaid_transaction_id" });
         if (error) throw error;
-        await applyRenameRules(item.owner_user_id, upserts.map((u) => u.plaid_transaction_id));
+        await applyRenameRules(item.owner_user_id, filtered.map((u) => u.plaid_transaction_id));
       }
 
       if (res.data.removed.length) {

@@ -10,7 +10,8 @@ import {
   setTransactionShare,
   updateTransactionCategory,
 } from "@cvc/api-client";
-import { displayMerchantName } from "@cvc/domain";
+import { displayMerchantName, type Category } from "@cvc/domain";
+import { CategoryPicker } from "../../components/CategoryPicker";
 import { SplitEditor } from "./SplitEditor";
 
 export interface EditableTxn {
@@ -20,6 +21,7 @@ export interface EditableTxn {
   amount: number;
   posted_at: string;
   category: string | null;
+  category_id?: string | null;
   pending: boolean;
   is_recurring: boolean;
   account_id: string;
@@ -34,8 +36,10 @@ interface Props {
   sharedView: boolean;
   hiddenInSpace: boolean;
   categorySuggestions: string[];
+  categories: Category[];
   onClose: () => void;
   onSaved: () => void;
+  onCategoryCreated?: (c: Category) => void;
 }
 
 export function EditPanel({
@@ -45,12 +49,15 @@ export function EditPanel({
   sharedView,
   hiddenInSpace,
   categorySuggestions,
+  categories,
   onClose,
   onSaved,
+  onCategoryCreated,
 }: Props) {
   const [name, setName] = useState("");
   const [applyToVendor, setApplyToVendor] = useState(false);
   const [category, setCategory] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [recurring, setRecurring] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -63,6 +70,7 @@ export function EditPanel({
     setName(displayMerchantName(txn));
     setApplyToVendor(false);
     setCategory(txn.category ?? "");
+    setCategoryId(txn.category_id ?? null);
     setNote(txn.note ?? "");
     setRecurring(txn.is_recurring);
     setHidden(hiddenInSpace);
@@ -96,8 +104,14 @@ export function EditPanel({
       }
       const trimmedCategory = category.trim();
       const newCategory = trimmedCategory.length ? trimmedCategory : null;
-      if (newCategory !== (txn.category ?? null)) {
-        await updateTransactionCategory(client, { id: txn.id, category: newCategory });
+      const idChanged = categoryId !== (txn.category_id ?? null);
+      const nameChanged = newCategory !== (txn.category ?? null);
+      if (idChanged || nameChanged) {
+        await updateTransactionCategory(client, {
+          id: txn.id,
+          category: newCategory,
+          category_id: categoryId,
+        });
       }
       const trimmedNote = note.trim();
       const newNote = trimmedNote.length ? trimmedNote : null;
@@ -178,28 +192,29 @@ export function EditPanel({
         <label className="muted" style={{ ...labelStyle, marginTop: 16 }}>
           Category
         </label>
-        <input
-          type="text"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          placeholder="e.g. groceries"
-          style={inputStyle}
-        />
-        {categorySuggestions.length ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-            {categorySuggestions.slice(0, 8).map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCategory(c)}
-                className="btn btn-secondary"
-                style={{ padding: "4px 10px", fontSize: 12 }}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        {spaceId ? (
+          <CategoryPicker
+            value={categoryId}
+            onChange={(id, cat) => {
+              setCategoryId(id);
+              setCategory(cat?.name ?? "");
+            }}
+            categories={categories}
+            spaceId={spaceId}
+            placeholder="Pick a category"
+            allowNone
+            allowCreate
+            onCategoryCreated={onCategoryCreated}
+          />
+        ) : (
+          <input
+            type="text"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            placeholder="e.g. groceries"
+            style={inputStyle}
+          />
+        )}
 
         <label className="muted" style={{ ...labelStyle, marginTop: 16 }}>
           Notes

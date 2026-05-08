@@ -13,6 +13,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import type { AccountType, IsoDate, MoneyCents, Uuid } from "@cvc/types";
+import { type Category, UNCATEGORIZED_BUCKET_ID } from "./category";
 
 export type Granularity = "day" | "week" | "month";
 
@@ -25,6 +26,7 @@ export interface ReportTxn {
   posted_at: string;
   amount: MoneyCents;
   category: string | null;
+  category_id?: string | null;
 }
 
 export interface AccountTxn {
@@ -41,6 +43,15 @@ export interface ReportAccount {
 
 export interface CategoryRow {
   category: string;
+  total: MoneyCents;
+}
+
+export interface CategoryIdRow {
+  /** id of the resolved category, or UNCATEGORIZED_BUCKET_ID for the null bucket */
+  id: string;
+  name: string;
+  color: string;
+  icon: string;
   total: MoneyCents;
 }
 
@@ -83,6 +94,53 @@ export function spendingByCategory(txns: ReportTxn[], range: DateRange): Categor
   return Object.entries(totals)
     .map(([category, total]) => ({ category, total }))
     .sort((a, b) => b.total - a.total);
+}
+
+/**
+ * ID-keyed sibling of `spendingByCategory`. Buckets outflows by `category_id`
+ * and joins each bucket to the supplied category map so each row carries its
+ * stable color/icon/name. Buckets with a null id (or an id absent from the
+ * map) collapse into a synthetic "Uncategorized" row keyed by
+ * UNCATEGORIZED_BUCKET_ID.
+ */
+export function spendingByCategoryId(
+  txns: ReportTxn[],
+  range: DateRange,
+  byId: ReadonlyMap<string, Category>,
+): CategoryIdRow[] {
+  const totals = new Map<string, MoneyCents>();
+  for (const t of txns) {
+    if (!inRange(t.posted_at.slice(0, 10), range)) continue;
+    if (t.amount >= 0) continue;
+    const key = t.category_id ?? UNCATEGORIZED_BUCKET_ID;
+    totals.set(key, (totals.get(key) ?? 0) + Math.abs(t.amount));
+  }
+  const rows: CategoryIdRow[] = [];
+  for (const [id, total] of totals) {
+    if (id === UNCATEGORIZED_BUCKET_ID) {
+      rows.push({
+        id: UNCATEGORIZED_BUCKET_ID,
+        name: "Uncategorized",
+        color: "#7b79ae",
+        icon: "doc",
+        total,
+      });
+      continue;
+    }
+    const cat = byId.get(id);
+    if (cat) {
+      rows.push({ id, name: cat.name, color: cat.color, icon: cat.icon, total });
+    } else {
+      rows.push({
+        id: UNCATEGORIZED_BUCKET_ID,
+        name: "Uncategorized",
+        color: "#7b79ae",
+        icon: "doc",
+        total: (rows.find((r) => r.id === UNCATEGORIZED_BUCKET_ID)?.total ?? 0) + total,
+      });
+    }
+  }
+  return rows.sort((a, b) => b.total - a.total);
 }
 
 function bucketKey(d: Date, granularity: Granularity): IsoDate {

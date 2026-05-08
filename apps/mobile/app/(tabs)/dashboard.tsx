@@ -369,6 +369,7 @@ export default function Dashboard() {
         sharedView={sharedView}
         hiddenInSpace={editing ? hiddenIds.has(editing.id) : false}
         categorySuggestions={data?.categorySuggestions ?? []}
+        categories={[]}
         onClose={() => setEditing(null)}
         onSaved={() => setReloadCount((c) => c + 1)}
       />

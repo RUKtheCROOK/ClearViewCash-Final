@@ -13,11 +13,16 @@ import {
   updateAccountSettings,
 } from "@cvc/api-client";
 import {
+  ACCOUNT_ICON_KEYS,
   accountBalanceTone,
   accountDisplayName,
+  accountKind,
+  defaultAccountIcon,
+  isAccountIconKey,
   isValidHexColor,
   readableTextOn,
 } from "@cvc/domain";
+import { I } from "../../../lib/icons";
 import { openPlaidLink } from "../../../lib/plaid";
 
 const supabase = createClient<Database>(
@@ -31,9 +36,11 @@ interface AccountDetail {
   display_name: string | null;
   mask: string | null;
   type: string;
+  subtype?: string | null;
   current_balance: number | null;
   plaid_item_id: string | null;
   color: string | null;
+  icon: string | null;
 }
 
 interface ItemDetail {
@@ -67,6 +74,7 @@ export default function AccountSettings() {
 
   const [nameInput, setNameInput] = useState("");
   const [colorInput, setColorInput] = useState("");
+  const [iconInput, setIconInput] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -85,6 +93,7 @@ export default function AccountSettings() {
       setAccount(acc);
       setNameInput(acc?.display_name ?? "");
       setColorInput(acc?.color ?? "");
+      setIconInput(acc?.icon ?? null);
       if (acc?.plaid_item_id) {
         const [itm, siblings] = await Promise.all([
           getPlaidItem(supabase, acc.plaid_item_id),
@@ -116,11 +125,13 @@ export default function AccountSettings() {
         id: account.id,
         display_name: trimmedName.length === 0 ? null : trimmedName,
         color: trimmedColor.length === 0 ? null : trimmedColor,
+        icon: isAccountIconKey(iconInput) ? iconInput : null,
       });
       const refreshed = (await getAccount(supabase, account.id)) as AccountDetail | null;
       setAccount(refreshed);
       setNameInput(refreshed?.display_name ?? "");
       setColorInput(refreshed?.color ?? "");
+      setIconInput(refreshed?.icon ?? null);
       setSaveMessage("Saved");
     } catch (e) {
       setSaveError((e as Error).message);
@@ -139,11 +150,13 @@ export default function AccountSettings() {
         id: account.id,
         display_name: null,
         color: null,
+        icon: null,
       });
       const refreshed = (await getAccount(supabase, account.id)) as AccountDetail | null;
       setAccount(refreshed);
       setNameInput("");
       setColorInput("");
+      setIconInput(null);
       setSaveMessage("Cleared");
     } catch (e) {
       setSaveError((e as Error).message);
@@ -354,6 +367,50 @@ export default function AccountSettings() {
           </div>
         ) : null}
 
+        <label className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+          Icon
+        </label>
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          Default is the{" "}
+          <strong>
+            {defaultAccountIcon(
+              accountKind({ type: account.type, subtype: account.subtype ?? null }),
+            )}
+          </strong>{" "}
+          icon for {account.type} accounts.
+        </p>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setIconInput(null)}
+            aria-label="Use default icon"
+            style={iconBtnStyle(iconInput == null)}
+          >
+            <span style={{ fontSize: 10, color: "var(--ink-3)" }}>auto</span>
+          </button>
+          {ACCOUNT_ICON_KEYS.map((key) => {
+            const Icon = (I as Record<string, (p: { color?: string; size?: number }) => JSX.Element>)[key];
+            const selected = iconInput === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setIconInput(key)}
+                aria-label={`Use ${key} icon`}
+                style={iconBtnStyle(selected)}
+              >
+                {Icon ? <Icon color="var(--ink-1)" size={20} /> : null}
+              </button>
+            );
+          })}
+        </div>
+
         <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
           <button
             className="btn btn-primary"
@@ -509,3 +566,17 @@ const inputStyle: React.CSSProperties = {
   background: "var(--surface)",
   color: "var(--text)",
 };
+
+function iconBtnStyle(selected: boolean): React.CSSProperties {
+  return {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    border: selected ? "2px solid var(--text)" : "1px solid var(--border)",
+    background: "var(--surface)",
+    cursor: "pointer",
+    display: "grid",
+    placeItems: "center",
+    padding: 0,
+  };
+}

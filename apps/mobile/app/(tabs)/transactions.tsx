@@ -5,6 +5,7 @@ import {
   getAccountsForView,
   getMembersWithProfilesForSpace,
   getTransactionsForView,
+  listCategoriesForSpace,
   setTransactionRecurring,
   setTransactionShare,
 } from "@cvc/api-client";
@@ -12,6 +13,7 @@ import {
   displayMerchantName,
   groupTransactionsByDate,
   resolveTxCategory,
+  type Category,
 } from "@cvc/domain";
 import { supabase } from "../../lib/supabase";
 import { useApp } from "../../lib/store";
@@ -61,6 +63,14 @@ export default function Transactions() {
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [splitTxnIds, setSplitTxnIds] = useState<Set<string>>(new Set());
   const [reloadCount, setReloadCount] = useState(0);
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  useEffect(() => {
+    if (!activeSpaceId) return;
+    listCategoriesForSpace(supabase, activeSpaceId).then((rows) =>
+      setCategories(rows as unknown as Category[]),
+    );
+  }, [activeSpaceId, reloadCount]);
 
   // Fetch transactions. Note: we filter category KIND client-side, so we don't
   // pass `categories` to the API. Account + owner are still server-filtered.
@@ -426,8 +436,10 @@ export default function Transactions() {
         palette={palette}
         mode={mode}
         categorySuggestions={categorySuggestions}
+        categories={categories}
         onClose={() => setEditing(null)}
         onSaved={() => setReloadCount((c) => c + 1)}
+        onCategoryCreated={(c) => setCategories((prev) => [...prev, c])}
       />
 
       <TransactionLongPressMenu

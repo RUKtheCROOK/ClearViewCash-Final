@@ -122,6 +122,7 @@ export type Database = {
           currency: string
           current_balance: number | null
           display_name: string | null
+          icon: string | null
           id: string
           last_synced_at: string | null
           mask: string | null
@@ -140,6 +141,7 @@ export type Database = {
           currency?: string
           current_balance?: number | null
           display_name?: string | null
+          icon?: string | null
           id?: string
           last_synced_at?: string | null
           mask?: string | null
@@ -158,6 +160,7 @@ export type Database = {
           currency?: string
           current_balance?: number | null
           display_name?: string | null
+          icon?: string | null
           id?: string
           last_synced_at?: string | null
           mask?: string | null
@@ -234,6 +237,7 @@ export type Database = {
           bill_id: string
           id: string
           paid_at: string
+          prev_next_due_at: string | null
           status: Database["public"]["Enums"]["bill_payment_status_t"]
           transaction_id: string | null
         }
@@ -242,6 +246,7 @@ export type Database = {
           bill_id: string
           id?: string
           paid_at: string
+          prev_next_due_at?: string | null
           status?: Database["public"]["Enums"]["bill_payment_status_t"]
           transaction_id?: string | null
         }
@@ -250,6 +255,7 @@ export type Database = {
           bill_id?: string
           id?: string
           paid_at?: string
+          prev_next_due_at?: string | null
           status?: Database["public"]["Enums"]["bill_payment_status_t"]
           transaction_id?: string | null
         }
@@ -277,6 +283,8 @@ export type Database = {
           cadence: Database["public"]["Enums"]["cadence_t"]
           // hand-edited: see migration 20260507_bills_income_category
           category: string | null
+          // hand-edited: see migration 20260516_categories
+          category_id: string | null
           created_at: string
           due_day: number | null
           id: string
@@ -300,6 +308,7 @@ export type Database = {
           autopay?: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
           category?: string | null
+          category_id?: string | null
           created_at?: string
           due_day?: number | null
           id?: string
@@ -320,6 +329,7 @@ export type Database = {
           autopay?: boolean
           cadence?: Database["public"]["Enums"]["cadence_t"]
           category?: string | null
+          category_id?: string | null
           created_at?: string
           due_day?: number | null
           id?: string
@@ -362,6 +372,8 @@ export type Database = {
       budgets: {
         Row: {
           category: string
+          // hand-edited: see migration 20260516_categories
+          category_id: string | null
           created_at: string
           id: string
           limit_amount: number
@@ -372,6 +384,7 @@ export type Database = {
         }
         Insert: {
           category: string
+          category_id?: string | null
           created_at?: string
           id?: string
           limit_amount: number
@@ -382,6 +395,7 @@ export type Database = {
         }
         Update: {
           category?: string
+          category_id?: string | null
           created_at?: string
           id?: string
           limit_amount?: number
@@ -393,6 +407,67 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "budgets_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budgets_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // hand-edited: see migration 20260516_categories
+      categories: {
+        Row: {
+          archived_at: string | null
+          color: string
+          created_at: string
+          icon: string
+          id: string
+          is_system: boolean
+          kind: Database["public"]["Enums"]["category_kind_t"]
+          name: string
+          seed_key: string | null
+          sort_order: number
+          space_id: string
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          color: string
+          created_at?: string
+          icon: string
+          id?: string
+          is_system?: boolean
+          kind?: Database["public"]["Enums"]["category_kind_t"]
+          name: string
+          seed_key?: string | null
+          sort_order?: number
+          space_id: string
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          color?: string
+          created_at?: string
+          icon?: string
+          id?: string
+          is_system?: boolean
+          kind?: Database["public"]["Enums"]["category_kind_t"]
+          name?: string
+          seed_key?: string | null
+          sort_order?: number
+          space_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "categories_space_id_fkey"
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"
@@ -507,6 +582,8 @@ export type Database = {
           cadence: Database["public"]["Enums"]["cadence_t"]
           // hand-edited: see migration 20260507_bills_income_category
           category: string | null
+          // hand-edited: see migration 20260516_categories
+          category_id: string | null
           created_at: string
           due_day: number | null
           id: string
@@ -532,6 +609,7 @@ export type Database = {
           autopay?: boolean
           cadence: Database["public"]["Enums"]["cadence_t"]
           category?: string | null
+          category_id?: string | null
           created_at?: string
           due_day?: number | null
           id?: string
@@ -555,6 +633,7 @@ export type Database = {
           autopay?: boolean
           cadence?: Database["public"]["Enums"]["cadence_t"]
           category?: string | null
+          category_id?: string | null
           created_at?: string
           due_day?: number | null
           id?: string
@@ -1121,7 +1200,10 @@ export type Database = {
       transaction_splits: {
         Row: {
           amount: number
-          category: string
+          // hand-edited: see migration 20260516_categories — relaxed to nullable
+          category: string | null
+          // hand-edited: see migration 20260516_categories
+          category_id: string | null
           created_at: string
           id: string
           space_id: string
@@ -1129,7 +1211,8 @@ export type Database = {
         }
         Insert: {
           amount: number
-          category: string
+          category?: string | null
+          category_id?: string | null
           created_at?: string
           id?: string
           space_id: string
@@ -1137,7 +1220,8 @@ export type Database = {
         }
         Update: {
           amount?: number
-          category?: string
+          category?: string | null
+          category_id?: string | null
           created_at?: string
           id?: string
           space_id?: string
@@ -1165,6 +1249,8 @@ export type Database = {
           account_id: string
           amount: number
           category: string | null
+          // hand-edited: see migration 20260516_categories
+          category_id: string | null
           created_at: string
           display_name: string | null
           id: string
@@ -1183,6 +1269,7 @@ export type Database = {
           account_id: string
           amount: number
           category?: string | null
+          category_id?: string | null
           created_at?: string
           display_name?: string | null
           id?: string
@@ -1201,6 +1288,7 @@ export type Database = {
           account_id?: string
           amount?: number
           category?: string | null
+          category_id?: string | null
           created_at?: string
           display_name?: string | null
           id?: string
@@ -1294,7 +1382,7 @@ export type Database = {
       bill_payment_status_t: "paid" | "overdue" | "skipped"
       bill_reminder_kind_t: "days_before" | "on_due_date" | "mute_all"
       bill_source_t: "detected" | "manual"
-      budget_period_t: "monthly" | "weekly"
+      budget_period_t: "monthly" | "weekly" | "paycheck"
       cadence_t:
         | "monthly"
         | "weekly"
@@ -1302,6 +1390,8 @@ export type Database = {
         | "yearly"
         | "custom"
         | "once"
+      // hand-edited: see migration 20260516_categories
+      category_kind_t: "expense" | "income" | "transfer"
       goal_kind_t: "save" | "payoff"
       // hand-edited: see migration 20260512_income_redesign
       income_source_t:
@@ -1896,7 +1986,7 @@ export const Constants = {
       bill_payment_status_t: ["paid", "overdue", "skipped"],
       bill_reminder_kind_t: ["days_before", "on_due_date", "mute_all"],
       bill_source_t: ["detected", "manual"],
-      budget_period_t: ["monthly", "weekly"],
+      budget_period_t: ["monthly", "weekly", "paycheck"],
       cadence_t: ["monthly", "weekly", "biweekly", "yearly", "custom", "once"],
       goal_kind_t: ["save", "payoff"],
       // hand-edited: see migration 20260512_income_redesign

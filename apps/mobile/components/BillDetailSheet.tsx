@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import Svg, { Line, Path, Rect, Text as SvgText } from "react-native-svg";
 import {
+  bucketForBill,
   daysUntilDue,
   formatLongDate,
   formatShortDate,
@@ -15,6 +16,7 @@ import {
   getBillReminders,
   recordBillPayment,
   setBillReminder,
+  undoBillPayment,
   type BillReminderRow,
 } from "@cvc/api-client";
 import type { Cadence } from "@cvc/types";
@@ -56,6 +58,7 @@ interface PaymentRow {
   paid_at: string;
   status: "paid" | "overdue" | "skipped";
   transaction_id: string | null;
+  prev_next_due_at: string | null;
 }
 
 interface AccountLite {
@@ -191,6 +194,42 @@ export function BillDetailSheet({ visible, billId, onClose, onChanged, onEdit }:
     }
   }
 
+  async function unmarkPaid() {
+    if (!bill) return;
+    const latest = sortedPays[0];
+    if (!latest) return;
+    setBusy("pay");
+    try {
+      await undoBillPayment(supabase, {
+        payment_id: latest.id,
+        bill_id: bill.id,
+        cadence: bill.cadence,
+        current_next_due_at: bill.next_due_at,
+        prev_next_due_at: latest.prev_next_due_at,
+      });
+      setReloadCount((c) => c + 1);
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message ?? "Could not unmark paid.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const detailBucket = useMemo(() => {
+    if (!bill) return null;
+    const latest = sortedPays[0];
+    return bucketForBill(
+      {
+        next_due_at: bill.next_due_at,
+        amount: bill.amount,
+        autopay: bill.autopay,
+        latest_payment: latest ? { paid_at: latest.paid_at } : null,
+      },
+      today,
+    );
+  }, [bill, sortedPays, today]);
+
   function confirmDelete() {
     if (!bill) return;
     Alert.alert("Delete bill?", "Payment history will be kept.", [
@@ -310,15 +349,30 @@ export function BillDetailSheet({ visible, billId, onClose, onChanged, onEdit }:
 
               {/* Quick actions */}
               <View style={{ paddingHorizontal: 16, paddingBottom: 18, flexDirection: "row", gap: 8 }}>
-                <ActionBtn
-                  label={busy === "pay" ? "Saving…" : "Mark paid"}
-                  onPress={markPaid}
-                  disabled={busy === "pay"}
-                  palette={palette}
-                  icon={
-                    <Svg width={16} height={16} viewBox="0 0 24 24"><Path d="M5 12l4 4 10-10" fill="none" stroke={palette.ink1} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" /></Svg>
-                  }
-                />
+                {detailBucket === "paid" ? (
+                  <ActionBtn
+                    label={busy === "pay" ? "Saving…" : "Unmark paid"}
+                    onPress={unmarkPaid}
+                    disabled={busy === "pay"}
+                    palette={palette}
+                    icon={
+                      <Svg width={16} height={16} viewBox="0 0 24 24">
+                        <Path d="M9 14l-5-5 5-5" fill="none" stroke={palette.ink1} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                        <Path d="M4 9h11a5 5 0 010 10h-3" fill="none" stroke={palette.ink1} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                      </Svg>
+                    }
+                  />
+                ) : (
+                  <ActionBtn
+                    label={busy === "pay" ? "Saving…" : "Mark paid"}
+                    onPress={markPaid}
+                    disabled={busy === "pay"}
+                    palette={palette}
+                    icon={
+                      <Svg width={16} height={16} viewBox="0 0 24 24"><Path d="M5 12l4 4 10-10" fill="none" stroke={palette.ink1} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" /></Svg>
+                    }
+                  />
+                )}
                 <ActionBtn
                   label="Edit"
                   onPress={onEdit}

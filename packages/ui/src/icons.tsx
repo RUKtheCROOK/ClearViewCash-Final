@@ -442,6 +442,87 @@ export const I = {
       </Svg>
     );
   },
+  fork: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M7 3v8a3 3 0 003 3v7M11 3v6M7 3v6M14 3l4 6v6h-4" />
+      </Svg>
+    );
+  },
+  car: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M5 17v-5l2-5h10l2 5v5" />
+        <Path d="M3 17h18" />
+        <Circle cx="7.5" cy="17.5" r="1.5" />
+        <Circle cx="16.5" cy="17.5" r="1.5" />
+      </Svg>
+    );
+  },
+  shirt: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M4 7l4-4 4 2 4-2 4 4-3 3v11H7V10L4 7z" />
+      </Svg>
+    );
+  },
+  heart: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M12 21s-7-4.5-9.5-9A5.5 5.5 0 0112 6a5.5 5.5 0 019.5 6c-2.5 4.5-9.5 9-9.5 9z" />
+      </Svg>
+    );
+  },
+  book: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M4 4h6a3 3 0 013 3v13a2 2 0 00-2-2H4V4zM20 4h-6a3 3 0 00-3 3v13a2 2 0 012-2h7V4z" />
+      </Svg>
+    );
+  },
+  paw: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Circle cx="6" cy="10" r="2" />
+        <Circle cx="10" cy="6" r="2" />
+        <Circle cx="14" cy="6" r="2" />
+        <Circle cx="18" cy="10" r="2" />
+        <Path d="M8 17a4 4 0 018 0c0 2-2 3-4 3s-4-1-4-3z" />
+      </Svg>
+    );
+  },
+  doc: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M6 3h9l4 4v14H6z" />
+        <Path d="M14 3v5h5M9 13h7M9 17h7" />
+      </Svg>
+    );
+  },
+  income: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M12 4v14M6 12l6 6 6-6" />
+        <Path d="M4 21h16" />
+      </Svg>
+    );
+  },
+  transfer: (p: IconProps = {}) => {
+    const { color, size = 18, strokeWidth = 1.6 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M4 7h13l-3-3M20 17H7l3 3" />
+      </Svg>
+    );
+  },
 };
 
 export type IconKey = keyof typeof I;

@@ -11,6 +11,7 @@ import {
   getMySpaces,
   getTransactionsForView,
   recordBillPayment,
+  undoBillPayment,
 } from "@cvc/api-client";
 import {
   groupBillsByBucket,
@@ -174,7 +175,14 @@ export default function BillsPage() {
       payee_glyph: (b as unknown as { payee_glyph?: string | null }).payee_glyph ?? null,
       source: b.source,
       recurring_group_id: b.recurring_group_id,
-      latest_payment: b.latest_payment ? { paid_at: b.latest_payment.paid_at, amount: b.latest_payment.amount } : null,
+      latest_payment: b.latest_payment
+        ? {
+            id: b.latest_payment.id,
+            paid_at: b.latest_payment.paid_at,
+            amount: b.latest_payment.amount,
+            prev_next_due_at: b.latest_payment.prev_next_due_at,
+          }
+        : null,
     };
   }
 
@@ -192,6 +200,26 @@ export default function BillsPage() {
       setReloadCount((c) => c + 1);
     } catch (e) {
       setError((e as Error).message ?? "Could not mark paid.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function unmarkPaid(b: BillRow) {
+    if (!b.latest_payment) return;
+    setBusy(b.id);
+    setError(null);
+    try {
+      await undoBillPayment(supabase, {
+        payment_id: b.latest_payment.id,
+        bill_id: b.id,
+        cadence: b.cadence,
+        current_next_due_at: b.next_due_at,
+        prev_next_due_at: b.latest_payment.prev_next_due_at,
+      });
+      setReloadCount((c) => c + 1);
+    } catch (e) {
+      setError((e as Error).message ?? "Could not unmark paid.");
     } finally {
       setBusy(null);
     }
@@ -409,6 +437,7 @@ export default function BillsPage() {
                 today={today}
                 onOpen={openDetail}
                 onMarkPaid={markPaid}
+                onUnmarkPaid={unmarkPaid}
                 busy={busy}
                 billToRowData={billToRowData}
               />
@@ -441,6 +470,7 @@ export default function BillsPage() {
                     accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
                     onClick={() => openDetail(b.id)}
                     onMarkPaid={() => markPaid(b)}
+                    onUnmarkPaid={() => unmarkPaid(b)}
                     paying={busy === b.id}
                   />
                 ))
@@ -493,7 +523,8 @@ export default function BillsPage() {
                       todayIso={today}
                       accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
                       onClick={() => openDetail(b.id)}
-                      onMarkPaid={bucket === "paid" ? undefined : () => markPaid(b)}
+                      onMarkPaid={() => markPaid(b)}
+                      onUnmarkPaid={() => unmarkPaid(b)}
                       paying={busy === b.id}
                     />
                   ))}
@@ -549,6 +580,7 @@ function DayPanel({
   today,
   onOpen,
   onMarkPaid,
+  onUnmarkPaid,
   busy,
   billToRowData,
 }: {
@@ -558,6 +590,7 @@ function DayPanel({
   today: string;
   onOpen: (id: string) => void;
   onMarkPaid: (b: BillRow) => void;
+  onUnmarkPaid: (b: BillRow) => void;
   busy: string | null;
   billToRowData: (b: BillRow) => BillRowData;
 }) {
@@ -598,6 +631,7 @@ function DayPanel({
               accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
               onClick={() => onOpen(b.id)}
               onMarkPaid={() => onMarkPaid(b)}
+              onUnmarkPaid={() => onUnmarkPaid(b)}
               paying={busy === b.id}
             />
           ))

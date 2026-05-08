@@ -1,6 +1,11 @@
 "use client";
 
-import { hueForCardId, tintForHue } from "@cvc/domain";
+import {
+  hueForCardId,
+  isValidHexColor,
+  readableTextOn,
+  tintForHue,
+} from "@cvc/domain";
 import { useTheme } from "../../lib/theme-provider";
 import { I } from "../../lib/icons";
 
@@ -8,6 +13,8 @@ export interface LinkChip {
   hueKey: string;
   label: string;
   share?: number | null;
+  /** Optional explicit hex color from the linked account's settings. */
+  color?: string | null;
 }
 
 interface Props {
@@ -52,7 +59,11 @@ export function LinkStrip({ direction, links }: Props) {
         {direction === "out" ? "Pays for" : "Paid by"}
       </span>
       {links.map((l, i) => {
+        const customColor = isValidHexColor(l.color ?? null) ? (l.color as string) : null;
         const tint = tintForHue(hueForCardId(l.hueKey), resolved);
+        const pillBg = customColor ?? tint.pillBg;
+        const pillFg = customColor ? readableTextOn(customColor) : tint.pillFg;
+        const swatch = customColor ? "rgba(255,255,255,0.35)" : tint.swatch;
         return (
           <span
             key={`${l.hueKey}-${i}`}
@@ -62,8 +73,8 @@ export function LinkStrip({ direction, links }: Props) {
               gap: 5,
               padding: "3px 8px 3px 6px",
               borderRadius: 999,
-              background: tint.pillBg,
-              color: tint.pillFg,
+              background: pillBg,
+              color: pillFg,
               fontFamily: "var(--font-ui)",
               fontSize: 11.5,
               fontWeight: 500,
@@ -74,7 +85,7 @@ export function LinkStrip({ direction, links }: Props) {
                 width: 8,
                 height: 8,
                 borderRadius: 2,
-                background: tint.swatch,
+                background: swatch,
               }}
             />
             {l.label}

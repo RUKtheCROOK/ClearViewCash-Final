@@ -10,6 +10,7 @@ import {
   getMembersWithProfilesForSpace,
   getMySpaces,
   getTransactionsForView,
+  listCategoriesForSpace,
   setTransactionRecurring,
   setTransactionShare,
 } from "@cvc/api-client";
@@ -17,6 +18,7 @@ import {
   displayMerchantName,
   groupTransactionsByDate,
   resolveTxCategory,
+  type Category,
 } from "@cvc/domain";
 import { effectiveSharedView, type SpaceMember } from "../../lib/view";
 import { useTheme } from "../../lib/theme-provider";
@@ -87,6 +89,7 @@ export default function TransactionsPage() {
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [splitTxnIds, setSplitTxnIds] = useState<Set<string>>(new Set());
   const [reloadCount, setReloadCount] = useState(0);
+  const [categories, setCategories] = useState<Category[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -140,6 +143,13 @@ export default function TransactionsPage() {
       ownerUserIds: ownerUserIds.size ? Array.from(ownerUserIds) : undefined,
     }).then((data) => setTxns(data as unknown as ActivityTxn[]));
   }, [signedIn, activeSpaceId, sharedView, restrictToOwnerId, accountIds, ownerUserIds, reloadCount]);
+
+  useEffect(() => {
+    if (!signedIn || !activeSpaceId) return;
+    listCategoriesForSpace(supabase, activeSpaceId).then((rows) =>
+      setCategories(rows as unknown as Category[]),
+    );
+  }, [signedIn, activeSpaceId, reloadCount]);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -503,8 +513,10 @@ export default function TransactionsPage() {
           accountName={accountNameById.get(editing.account_id) ?? null}
           mode={mode}
           categorySuggestions={categorySuggestions}
+          categories={categories}
           onClose={() => setEditing(null)}
           onSaved={() => setReloadCount((c) => c + 1)}
+          onCategoryCreated={(c) => setCategories((prev) => [...prev, c])}
         />
       ) : null}
 

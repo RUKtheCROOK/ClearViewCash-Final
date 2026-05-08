@@ -45,6 +45,7 @@ interface AccountRow {
   plaid_item_id: string | null;
   last_synced_at?: string | null;
   color?: string | null;
+  icon?: string | null;
 }
 
 interface PlaidItemStatus {
@@ -180,7 +181,7 @@ export default function AccountsPage() {
         supabase
           .from("accounts")
           .select(
-            "id, name, display_name, mask, type, subtype, current_balance, plaid_item_id, last_synced_at, color",
+            "id, name, display_name, mask, type, subtype, current_balance, plaid_item_id, last_synced_at, color, icon",
           ),
         supabase.from("payment_links").select("id, funding_account_id, name, cross_space"),
         supabase.from("payment_link_cards").select("payment_link_id, card_account_id, split_pct"),
@@ -252,6 +253,13 @@ export default function AccountsPage() {
     return m;
   }, [rows, allOwnedAccounts]);
 
+  const accountColorById = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const a of rows) m.set(a.id, a.color ?? null);
+    for (const a of allOwnedAccounts) if (!m.has(a.id)) m.set(a.id, a.color ?? null);
+    return m;
+  }, [rows, allOwnedAccounts]);
+
   const sharedAccountIds = useMemo(() => new Set(shares.map((s) => s.account_id)), [shares]);
 
   function isFullyCovered(accountId: string, type: string): boolean {
@@ -281,9 +289,14 @@ export default function AccountsPage() {
               accountNameById.get(link.funding_account_id) ??
               (link.cross_space ? "Linked account" : null);
             if (!counterpartName) return null;
-            return { hueKey: a.id, label: counterpartName, share: c.split_pct };
+            return {
+              hueKey: link.funding_account_id,
+              label: counterpartName,
+              share: c.split_pct,
+              color: accountColorById.get(link.funding_account_id) ?? null,
+            };
           })
-          .filter(Boolean) as { hueKey: string; label: string; share: number }[]
+          .filter(Boolean) as { hueKey: string; label: string; share: number; color: string | null }[]
       : links
           .filter((l) => l.funding_account_id === a.id)
           .flatMap((l) =>
@@ -292,10 +305,15 @@ export default function AccountsPage() {
               .map((c) => {
                 const cardName = accountNameById.get(c.card_account_id);
                 if (!cardName) return null;
-                return { hueKey: c.card_account_id, label: cardName, share: c.split_pct };
+                return {
+                  hueKey: c.card_account_id,
+                  label: cardName,
+                  share: c.split_pct,
+                  color: accountColorById.get(c.card_account_id) ?? null,
+                };
               }),
           )
-          .filter(Boolean) as { hueKey: string; label: string; share: number }[];
+          .filter(Boolean) as { hueKey: string; label: string; share: number; color: string | null }[];
 
     return {
       id: a.id,
@@ -314,6 +332,8 @@ export default function AccountsPage() {
       syncStatus,
       apr: null,
       fullyCovered: isFullyCovered(a.id, a.type),
+      color: a.color ?? null,
+      iconKey: a.icon ?? null,
       onPress: () => router.push(`/accounts/${a.id}`),
       onReconnectPress:
         syncStatus === "error" && a.plaid_item_id

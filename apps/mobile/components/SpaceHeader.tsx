@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pressable, View } from "react-native";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import { I, Money, Text } from "@cvc/ui";
 import { useSpaces } from "../hooks/useSpaces";
 import { useUnreadNotifications } from "../hooks/useUnreadNotifications";
@@ -41,6 +41,8 @@ export function SpaceHeader({ onAddTransaction }: Props = {}) {
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const { hero } = useDashboardHeader();
+  const pathname = usePathname();
+  const showHero = pathname === "/dashboard" || pathname === "/forecast";
 
   function handlePremiumButton() {
     if (isPremium) setQuickOpen(true);
@@ -155,7 +157,7 @@ export function SpaceHeader({ onAddTransaction }: Props = {}) {
         </View>
       </View>
 
-      {hero ? (
+      {hero && showHero ? (
         <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 4 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
             <Text variant="eyebrow" style={{ color: palette.ink2 }}>
