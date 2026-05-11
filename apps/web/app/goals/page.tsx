@@ -22,6 +22,7 @@ import { GoalCard, type GoalCardData } from "./_components/GoalCard";
 import { AddGoalCard } from "./_components/AddGoalCard";
 import { resolveBranding } from "./_components/goalGlyphs";
 import { classifyStatus, type GoalStatus } from "./_components/StatusPill";
+import { EmptyGoals } from "../../components/states";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -428,30 +429,7 @@ function GoalsPageInner() {
         ) : null}
 
         {cards.length === 0 ? (
-          <div style={{ padding: "0 16px" }}>
-            <div
-              style={{
-                padding: 32,
-                borderRadius: 18,
-                background: "var(--bg-surface)",
-                border: "1px solid var(--line-soft)",
-                textAlign: "center",
-              }}
-            >
-              <p style={{ marginBottom: 16, color: "var(--ink-3)", fontFamily: "var(--font-ui)" }}>
-                Pick something to work toward — a fund, a thing, a debt to clear. We&apos;ll track
-                the pace and tell you if you&apos;re ahead or behind.
-              </p>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={startNew}
-                style={{ padding: "10px 18px" }}
-              >
-                + Start your first goal
-              </button>
-            </div>
-          </div>
+          <EmptyGoals onCreate={startNew} onPickStarter={() => startNew()} />
         ) : (
           <>
             <AggregateStrip

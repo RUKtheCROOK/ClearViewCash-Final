@@ -7,6 +7,9 @@ import type { Database } from "@cvc/types/supabase.generated";
 import { useTheme } from "../../../lib/theme-provider";
 import { Group, PageHeader, Row, SectionLabel } from "../_components/SettingsAtoms";
 import { Si } from "../_components/settingsGlyphs";
+import { BioDeclined } from "../../../components/states";
+
+const PASSKEYS_ENABLED = process.env.NEXT_PUBLIC_FEATURE_PASSKEYS === "1";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -90,6 +93,13 @@ export default function SecurityPage() {
     <main style={{ background: "var(--bg-canvas)", minHeight: "100vh", paddingBottom: 60 }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         <PageHeader title="Security" backHref="/settings" onBack={() => router.push("/settings")} />
+
+        {PASSKEYS_ENABLED ? (
+          <BioDeclined
+            onEnable={() => setInfo("Passkey setup is coming soon.")}
+            onKeepPassword={() => setInfo("No worries — your password still signs you in.")}
+          />
+        ) : null}
 
         {has2fa === false && !otpUri ? (
           <div style={{ padding: "8px 16px 0" }}>

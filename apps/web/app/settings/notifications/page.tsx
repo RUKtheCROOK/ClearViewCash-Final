@@ -13,6 +13,7 @@ import {
   SectionLabel,
   ToggleRow,
 } from "../_components/SettingsAtoms";
+import { NotifPermissionDeclined } from "../../../components/states";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -23,10 +24,31 @@ export default function NotificationsPage() {
   const { resolved } = useTheme();
   const { prefs, loading, update } = useNotificationPreferences();
   const [email, setEmail] = useState<string>("");
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission | "unsupported">("default");
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? ""));
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!("Notification" in window)) {
+      setBrowserPermission("unsupported");
+      return;
+    }
+    setBrowserPermission(Notification.permission);
+  }, []);
+
+  const showPushBlocked =
+    browserPermission === "denied" || (prefs != null && !prefs.push_enabled && browserPermission !== "granted");
+
+  async function requestPush() {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission === "denied") return;
+    const result = await Notification.requestPermission();
+    setBrowserPermission(result);
+    if (result === "granted") await update({ push_enabled: true });
+  }
 
   const channelCount = prefs ? [prefs.push_enabled, prefs.email_enabled, prefs.sms_enabled].filter(Boolean).length : 0;
   const toggles = prefs
@@ -51,6 +73,17 @@ export default function NotificationsPage() {
           sub={loading ? "Loading…" : `${enabledCount} of ${toggles.length + 1} enabled · across ${channelCount} channels`}
           backHref="/settings"
         />
+
+        {showPushBlocked ? (
+          <NotifPermissionDeclined
+            onOpenSettings={browserPermission === "denied" ? undefined : requestPush}
+            askAgainNote={
+              browserPermission === "denied"
+                ? "Push is blocked in your browser. Allow notifications for this site to turn it back on."
+                : undefined
+            }
+          />
+        ) : null}
 
         {/* Master delivery card */}
         <div style={{ padding: "8px 16px 0" }}>

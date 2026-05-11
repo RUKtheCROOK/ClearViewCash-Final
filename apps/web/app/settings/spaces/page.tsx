@@ -23,6 +23,7 @@ import { Group, PageHeader, Row, SectionLabel, ToggleRow } from "../_components/
 import { SpaceCard } from "../_components/SpaceCard";
 import { MemberRow } from "../_components/MemberRow";
 import { Si } from "../_components/settingsGlyphs";
+import { PartnerInvitePending, PartnerNoData } from "../../../components/states";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -183,6 +184,30 @@ export default function SpacesPage() {
   const inviteExpiresIn = pendingInvite
     ? Math.max(0, Math.round((new Date(pendingInvite.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
     : null;
+
+  const acceptedMembers = managingMembers.filter((m) => m.user_id != null && m.accepted_at != null);
+  const showPartnerInvitePending = managingSpace != null && pendingInvite != null && acceptedMembers.length <= 1;
+  const showPartnerNoData =
+    managingSpace != null &&
+    !showPartnerInvitePending &&
+    acceptedMembers.length >= 2 &&
+    managingSpace.owner_user_id === userId;
+  const newestPartner = showPartnerNoData
+    ? [...acceptedMembers]
+        .filter((m) => m.user_id !== userId && m.accepted_at)
+        .sort((a, b) => (b.accepted_at ?? "").localeCompare(a.accepted_at ?? ""))[0]
+    : null;
+  const partnerJoinedRelative = newestPartner?.accepted_at
+    ? ((): string => {
+        const diff = Date.now() - new Date(newestPartner.accepted_at as string).getTime();
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        if (days <= 0) return "today";
+        if (days === 1) return "yesterday";
+        if (days < 7) return `${days} days ago`;
+        if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+        return `${Math.floor(days / 30)} months ago`;
+      })()
+    : "recently";
 
   function handleSelect(id: string) {
     setManagingId(id);
@@ -365,6 +390,38 @@ export default function SpacesPage() {
             <SectionLabel sub={isOwner ? "Manage members, sharing rules, and invites for the space below." : "You're a member here. Some controls are owner-only."}>
               MANAGING · {managingSpace.name.toUpperCase()}
             </SectionLabel>
+
+            {showPartnerInvitePending && pendingInvite ? (
+              <PartnerInvitePending
+                spaceName={managingSpace.name}
+                spaceHue={managingHue}
+                inviteeName={(pendingInvite.email ?? "Your invitee").split("@")[0] || "Your invitee"}
+                inviteeEmail={pendingInvite.email ?? "—"}
+                invitedOn={new Date(pendingInvite.created_at).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                })}
+                inviteLink={shareLink(pendingInvite.token)}
+                expiryLabel={
+                  inviteExpiresIn != null
+                    ? `INVITE LINK · EXPIRES IN ${inviteExpiresIn} ${inviteExpiresIn === 1 ? "DAY" : "DAYS"}`
+                    : "INVITE LINK"
+                }
+                onResend={() => handleCopyLink(pendingInvite.token)}
+                onCancel={() => handleRevoke(pendingInvite.id)}
+              />
+            ) : null}
+
+            {showPartnerNoData && newestPartner ? (
+              <PartnerNoData
+                spaceName={managingSpace.name}
+                spaceHue={managingHue}
+                partnerName={(newestPartner.invited_email ?? "Your partner").split("@")[0] || "Your partner"}
+                partnerJoinedRelative={partnerJoinedRelative}
+                selfInitials={(selfMember?.invited_email ?? "You").slice(0, 2).toUpperCase()}
+                partnerInitials={(newestPartner.invited_email ?? "P").slice(0, 2).toUpperCase()}
+              />
+            ) : null}
 
             <div style={{ padding: "0 16px 12px" }}>
               <div

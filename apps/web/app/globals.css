@@ -64,10 +64,15 @@
   --neg-tint: oklch(95% 0.030 25);
   --warn: oklch(62% 0.140 65);
   --warn-tint: oklch(95% 0.030 65);
+  --warn-soft: oklch(88% 0.050 65);
   --over: oklch(54% 0.110 35);
   --over-tint: oklch(95% 0.025 35);
   --info: oklch(50% 0.090 240);
   --info-tint: oklch(95% 0.025 240);
+  --neg-soft: oklch(88% 0.045 25);
+  --brand-soft: oklch(88% 0.030 195);
+  --line-faint: oklch(95% 0.005 90);
+  --paper: oklch(96% 0.008 60);
 
   --projected: oklch(58% 0.010 220);
   --projected-tint: oklch(94% 0.006 220);
@@ -127,10 +132,15 @@
   --neg-tint: oklch(30% 0.050 25);
   --warn: oklch(78% 0.130 65);
   --warn-tint: oklch(30% 0.050 65);
+  --warn-soft: oklch(42% 0.085 65);
   --over: oklch(72% 0.110 35);
   --over-tint: oklch(30% 0.050 35);
   --info: oklch(72% 0.090 240);
   --info-tint: oklch(28% 0.040 240);
+  --neg-soft: oklch(40% 0.080 25);
+  --brand-soft: oklch(40% 0.060 195);
+  --line-faint: oklch(22% 0.014 240);
+  --paper: oklch(22% 0.014 240);
 
   --projected: oklch(60% 0.012 240);
   --projected-tint: oklch(24% 0.012 240);
@@ -266,4 +276,9 @@ a {
   font-family: var(--font-num);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
+}
+
+/* Offline desaturation hook — set by OfflineBanner on <html>. */
+html[data-offline="true"] body {
+  filter: saturate(0.75);
 }

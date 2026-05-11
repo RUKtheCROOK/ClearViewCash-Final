@@ -31,6 +31,7 @@ import { ExpandedFilters } from "./ExpandedFilters";
 import { DetailSheet } from "./DetailSheet";
 import { ContextMenu } from "./ContextMenu";
 import { SplitEditor } from "./SplitEditor";
+import { EmptyTransactions, StateBanner, StateMono } from "../../components/states";
 import type {
   AccountOpt,
   ActivityTxn,
@@ -468,6 +469,50 @@ export default function TransactionsPage() {
       </div>
 
       <div style={{ maxWidth: 880, margin: "0 auto" }}>
+        {(() => {
+          const STUCK_MS = 5 * 24 * 60 * 60 * 1000;
+          const now = Date.now();
+          const stuck = txns.filter((t) => {
+            if (!t.pending) return false;
+            const posted = parseDateLocal(t.posted_at);
+            if (!posted) return false;
+            return now - posted.getTime() > STUCK_MS;
+          });
+          const first = stuck[0];
+          if (!first) return null;
+          const oldest = stuck.reduce<ActivityTxn>((acc, t) => {
+            const a = parseDateLocal(acc.posted_at)?.getTime() ?? Infinity;
+            const b = parseDateLocal(t.posted_at)?.getTime() ?? Infinity;
+            return b < a ? t : acc;
+          }, first);
+          const oldestPosted = parseDateLocal(oldest.posted_at);
+          const days = oldestPosted
+            ? Math.floor((now - oldestPosted.getTime()) / (24 * 60 * 60 * 1000))
+            : 0;
+          return (
+            <div style={{ padding: "12px 16px 0" }}>
+              <StateBanner
+                tone="warn"
+                iconChar="?"
+                title={
+                  stuck.length === 1 ? (
+                    <>
+                      One transaction has been pending for{" "}
+                      <StateMono style={{ color: "var(--warn)" }}>{days} days</StateMono>
+                    </>
+                  ) : (
+                    <>
+                      <StateMono style={{ color: "var(--warn)" }}>{stuck.length} transactions</StateMono> are
+                      pending longer than usual
+                    </>
+                  )
+                }
+                body="Most pending charges clear in 1–3 days. This is unusual but not always a problem — often a tip or final amount is still being calculated."
+              />
+            </div>
+          );
+        })()}
+
         {tier !== "starter" && filtered.length > 0 ? (
           <div style={{ padding: 16 }}>
             <TransactionsChartSection txns={filtered} />
@@ -475,13 +520,17 @@ export default function TransactionsPage() {
         ) : null}
 
         {groups.length === 0 ? (
-          <div style={{ padding: "32px 16px", textAlign: "center" }}>
-            <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--ink-3)" }}>
-              {sharedView
-                ? "Nothing shared into this space matches your filters."
-                : "No transactions match your filters."}
-            </p>
-          </div>
+          txns.length === 0 && activeFilterCount === 0 && !sharedView ? (
+            <EmptyTransactions onLink={() => router.push("/accounts")} />
+          ) : (
+            <div style={{ padding: "32px 16px", textAlign: "center" }}>
+              <p style={{ fontFamily: "var(--font-ui)", fontSize: 13, color: "var(--ink-3)" }}>
+                {sharedView
+                  ? "Nothing shared into this space matches your filters."
+                  : "No transactions match your filters."}
+              </p>
+            </div>
+          )
         ) : (
           groups.map((group) => (
             <div key={group.key}>

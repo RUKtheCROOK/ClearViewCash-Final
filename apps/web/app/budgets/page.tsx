@@ -35,6 +35,7 @@ import { GroupLabel } from "./_components/GroupLabel";
 import { CategoryRow, type CategoryRowData } from "./_components/CategoryRow";
 import { resolveCategoryBranding } from "./_components/budgetGlyphs";
 import { classifyState } from "./_components/ProgressBar";
+import { EmptyBudgets } from "../../components/states";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -379,29 +380,10 @@ export default function BudgetsPage() {
         </div>
 
         {budgets.length === 0 ? (
-          <div style={{ padding: "0 16px" }}>
-            <div
-              style={{
-                padding: 32,
-                borderRadius: 18,
-                background: "var(--bg-surface)",
-                border: "1px solid var(--line-soft)",
-                textAlign: "center",
-              }}
-            >
-              <p style={{ marginBottom: 16, color: "var(--ink-3)", fontFamily: "var(--font-ui)" }}>
-                Set a calm budget for what matters. Pick a category to start — we&apos;ll track spend without scolding.
-              </p>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => openCreate()}
-                style={{ padding: "10px 18px" }}
-              >
-                + Add a budget
-              </button>
-            </div>
-          </div>
+          <EmptyBudgets
+            onUseAverages={() => openCreate()}
+            onBuildFromScratch={() => openCreate()}
+          />
         ) : (
           <>
             <ModeToggle value={mode} onChange={setModeAndPersist} />

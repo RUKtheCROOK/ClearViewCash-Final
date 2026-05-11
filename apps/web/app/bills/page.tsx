@@ -27,6 +27,7 @@ import { GroupHeader } from "./_components/GroupHeader";
 import { ViewToggle, type BillsViewMode } from "./_components/ViewToggle";
 import { BillsSuggestions } from "./_components/BillsSuggestions";
 import { Num, fmtMoneyDollars } from "./_components/Num";
+import { EmptyBills } from "../../components/states";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -477,36 +478,10 @@ export default function BillsPage() {
               )}
             </Section>
           ) : bills.length === 0 ? (
-            <div
-              style={{
-                margin: "10px 16px",
-                padding: 24,
-                borderRadius: 14,
-                background: "var(--bg-surface)",
-                border: "1px solid var(--line-soft)",
-                textAlign: "center",
-              }}
-            >
-              <p style={{ margin: 0, color: "var(--ink-2)", fontSize: 14 }}>
-                No bills yet. Tap{" "}
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 18,
-                    height: 18,
-                    borderRadius: 999,
-                    background: "var(--brand)",
-                    color: "var(--brand-on)",
-                    verticalAlign: "middle",
-                  }}
-                >
-                  <PlusIcon size={11} />
-                </span>{" "}
-                to add one, or wait for us to detect repeat charges.
-              </p>
-            </div>
+            <EmptyBills
+              onScan={() => router.push("/bills/new?source=scan")}
+              onAddManually={() => router.push("/bills/new")}
+            />
           ) : (
             BUCKET_ORDER.map((bucket) => {
               const items = buckets[bucket];

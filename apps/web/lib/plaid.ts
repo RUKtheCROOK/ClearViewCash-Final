@@ -41,3 +41,50 @@ export async function openPlaidLink(linkToken: string): Promise<string> {
     handler.open();
   });
 }
+
+interface SupabaseClientLike {
+  auth: {
+    getSession: () => Promise<{ data: { session: { access_token: string } | null } }>;
+  };
+}
+
+// Drives the full Plaid reconnect flow for one broken item:
+//   1) fetch an update-mode link_token for the item
+//   2) open Plaid Link
+//   3) trigger a sync once Link succeeds
+// Resolves silently on user_exited so callers can no-op on that case.
+export async function reconnectPlaidItem(
+  supabase: SupabaseClientLike,
+  itemRowId: string,
+): Promise<void> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) throw new Error("not_signed_in");
+
+  const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  const tokenRes = await fetch(`${baseUrl}/functions/v1/plaid-link-token`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ plaid_item_row_id: itemRowId }),
+  });
+  const tokenJson = (await tokenRes.json()) as { link_token?: string; error?: string };
+  if (!tokenRes.ok || !tokenJson.link_token) {
+    throw new Error(tokenJson.error ?? "could_not_start_reconnect");
+  }
+
+  await openPlaidLink(tokenJson.link_token);
+
+  await fetch(`${baseUrl}/functions/v1/plaid-sync`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ plaid_item_row_id: itemRowId }),
+  });
+}

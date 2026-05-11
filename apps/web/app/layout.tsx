@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { Geist, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "../lib/theme-provider";
+import { OfflineBanner } from "../components/states/OfflineBanner";
 
 const geist = Geist({
   subsets: ["latin"],
@@ -24,7 +25,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${geist.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <OfflineBanner />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

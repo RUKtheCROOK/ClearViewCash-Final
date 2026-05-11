@@ -23,7 +23,8 @@ import {
   readableTextOn,
 } from "@cvc/domain";
 import { I } from "../../../lib/icons";
-import { openPlaidLink } from "../../../lib/plaid";
+import { reconnectPlaidItem } from "../../../lib/plaid";
+import { StateBanner } from "../../../components/states";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -170,34 +171,7 @@ export default function AccountSettings() {
     setReconnecting(true);
     setReconnectError(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) throw new Error("not_signed_in");
-      const tokenRes = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/plaid-link-token`,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ plaid_item_row_id: account.plaid_item_id }),
-        },
-      );
-      const tokenJson = await tokenRes.json();
-      if (!tokenRes.ok || !tokenJson.link_token) {
-        throw new Error(tokenJson.error ?? "could_not_start_reconnect");
-      }
-      await openPlaidLink(tokenJson.link_token);
-      await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/plaid-sync`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ plaid_item_row_id: account.plaid_item_id }),
-      });
+      await reconnectPlaidItem(supabase, account.plaid_item_id);
       const itm = await getPlaidItem(supabase, account.plaid_item_id);
       setItem(itm as ItemDetail | null);
     } catch (e) {
@@ -466,19 +440,18 @@ export default function AccountSettings() {
           ) : null}
         </div>
         {needsReconnect && account.plaid_item_id ? (
-          <div>
-            <button
-              className="btn btn-secondary"
-              style={{ padding: "8px 14px", fontSize: 13 }}
-              onClick={reconnect}
-              disabled={reconnecting}
-            >
-              {reconnecting ? "Reconnecting…" : "Reconnect"}
-            </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <StateBanner
+              tone="neg"
+              title={`${item?.institution_name ?? "This bank"} needs you to sign in again`}
+              body="New transactions and balances are paused until you reconnect. Takes ~30 seconds."
+              rightAction={{
+                label: reconnecting ? "Reconnecting…" : "Reconnect",
+                onPress: reconnect,
+              }}
+            />
             {reconnectError ? (
-              <div style={{ color: "var(--negative)", fontSize: 12, marginTop: 6 }}>
-                {reconnectError}
-              </div>
+              <div style={{ color: "var(--neg)", fontSize: 12 }}>{reconnectError}</div>
             ) : null}
           </div>
         ) : null}

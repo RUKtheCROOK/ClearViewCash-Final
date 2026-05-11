@@ -18,7 +18,7 @@ import {
   getPlaidItemsStatus,
 } from "@cvc/api-client";
 import type { PaymentLink } from "@cvc/types";
-import { openPlaidLink } from "../../lib/plaid";
+import { openPlaidLink, reconnectPlaidItem } from "../../lib/plaid";
 import { effectiveSharedView, type SpaceMember } from "../../lib/view";
 import { AccountsTitleBlock } from "../../components/accounts/AccountsTitleBlock";
 import { SectionHead } from "../../components/accounts/SectionHead";
@@ -28,6 +28,7 @@ import {
 } from "../../components/accounts/AccountCard";
 import { EmptyLinksCallout } from "../../components/accounts/EmptyLinksCallout";
 import { PaymentLinkSheet } from "../../components/accounts/PaymentLinkSheet";
+import { EmptyAccounts, StateBanner, StateMono } from "../../components/states";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -347,34 +348,7 @@ export default function AccountsPage() {
     setReconnectingItemId(itemRowId);
     setActionError(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) throw new Error("not_signed_in");
-      const tokenRes = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/plaid-link-token`,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ plaid_item_row_id: itemRowId }),
-        },
-      );
-      const tokenJson = await tokenRes.json();
-      if (!tokenRes.ok || !tokenJson.link_token) {
-        throw new Error(tokenJson.error ?? "could_not_start_reconnect");
-      }
-      await openPlaidLink(tokenJson.link_token);
-      await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/plaid-sync`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ plaid_item_row_id: itemRowId }),
-      });
+      await reconnectPlaidItem(supabase, itemRowId);
       setReloadCount((n) => n + 1);
     } catch (e) {
       const msg = (e as Error).message;
@@ -457,6 +431,14 @@ export default function AccountsPage() {
     );
   }
 
+  if (rows.length === 0 && !sharedView) {
+    return (
+      <main style={{ background: "var(--bg-canvas)", minHeight: "100vh" }}>
+        <EmptyAccounts onLink={addAccount} />
+      </main>
+    );
+  }
+
   const groups = groupAccountsByType(rows);
   const groupCaption = (group: string, count: number): string | undefined => {
     if (group === "Cash") return `${count} ${count === 1 ? "account" : "accounts"}`;
@@ -473,6 +455,30 @@ export default function AccountsPage() {
     !dismissedCallout && !hasAnyLinks && cardCandidates.length > 0 && funderCandidates.length > 0;
 
   const spaceCls = spaceClassFor(activeSpace?.tint);
+
+  const erroredItemIds = Object.values(itemStatus)
+    .filter((s) => s.status === "error")
+    .map((s) => s.id);
+  const hasReconnectError = erroredItemIds.length > 0;
+  const erroredItem = hasReconnectError
+    ? Object.values(itemStatus).find((s) => s.status === "error") ?? null
+    : null;
+  const erroredAccounts = hasReconnectError
+    ? rows.filter((r) => r.plaid_item_id != null && erroredItemIds.includes(r.plaid_item_id))
+    : [];
+
+  const STALE_MS = 60 * 60 * 1000;
+  const now = Date.now();
+  const staleAccounts = !hasReconnectError
+    ? rows.filter((r) => {
+        if (!r.plaid_item_id) return false;
+        const status = itemStatus[r.plaid_item_id];
+        if (!status || status.status === "error") return false;
+        if (!r.last_synced_at) return false;
+        return now - new Date(r.last_synced_at).getTime() > STALE_MS;
+      })
+    : [];
+  const hasPartialSyncWarn = staleAccounts.length > 0 && staleAccounts.length < rows.length;
 
   return (
     <main style={{ background: "var(--bg-canvas)", minHeight: "100vh", paddingBottom: 60 }}>
@@ -501,6 +507,138 @@ export default function AccountsPage() {
             }}
           >
             {actionError}
+          </div>
+        ) : null}
+
+        {hasReconnectError && erroredItem ? (
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+            <StateBanner
+              tone="neg"
+              leftBar
+              eyebrow="CONNECTION BROKEN"
+              title={`${erroredItem.institution_name ?? "This bank"} needs you to sign in again.`}
+              body="Your bank changed how third-party apps connect. We need your one-time approval to keep pulling in new transactions and balances."
+            />
+            {erroredAccounts.length > 0 ? (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  borderRadius: 12,
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--line-soft)",
+                }}
+              >
+                <StateMono
+                  style={{ fontSize: 9.5, color: "var(--ink-3)", letterSpacing: "0.08em", fontWeight: 600 }}
+                >
+                  WHAT&apos;S AFFECTED
+                </StateMono>
+                {erroredAccounts.map((a, i, arr) => (
+                  <div
+                    key={a.id}
+                    style={{
+                      padding: "8px 0",
+                      borderBottom: i === arr.length - 1 ? "none" : "1px solid var(--line-faint)",
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      gap: 10,
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontFamily: "var(--font-ui)",
+                          fontSize: 13,
+                          color: "var(--ink-1)",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {accountDisplayName(a)}{" "}
+                        {a.mask ? (
+                          <StateMono style={{ color: "var(--ink-3)", fontSize: 11.5 }}>··{a.mask}</StateMono>
+                        ) : null}
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: "var(--font-ui)",
+                          fontSize: 11,
+                          color: "var(--neg)",
+                          marginTop: 2,
+                        }}
+                      >
+                        Stale since {relativeAgo(a.last_synced_at ?? null)}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        padding: "3px 7px",
+                        borderRadius: 999,
+                        background: "var(--neg-tint)",
+                        color: "var(--neg)",
+                        fontFamily: "var(--font-num)",
+                        fontSize: 9,
+                        fontWeight: 600,
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      STALE
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => reconnect(erroredItem.id)}
+              disabled={reconnectingItemId === erroredItem.id}
+              style={{
+                width: "100%",
+                height: 48,
+                borderRadius: 12,
+                border: 0,
+                cursor: reconnectingItemId === erroredItem.id ? "wait" : "pointer",
+                background: "var(--brand)",
+                color: "var(--brand-on)",
+                fontFamily: "var(--font-ui)",
+                fontSize: 14,
+                fontWeight: 500,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                opacity: reconnectingItemId === erroredItem.id ? 0.7 : 1,
+              }}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 12a9 9 0 11-3-6.7" />
+                <path d="M21 4v5h-5" />
+              </svg>
+              {reconnectingItemId === erroredItem.id
+                ? "Reconnecting…"
+                : `Reconnect ${erroredItem.institution_name ?? "bank"}`}
+            </button>
+          </div>
+        ) : hasPartialSyncWarn ? (
+          <div style={{ marginTop: 12 }}>
+            <StateBanner
+              tone="warn"
+              title={`${staleAccounts.length} of ${rows.length} ${rows.length === 1 ? "account" : "accounts"} hasn't synced`}
+              body={
+                <>
+                  Some accounts haven&apos;t refreshed in the last hour. Your other accounts are up to date.
+                </>
+              }
+            />
           </div>
         ) : null}
 
@@ -591,11 +729,9 @@ export default function AccountsPage() {
           </div>
         ))}
 
-        {rows.length === 0 ? (
+        {rows.length === 0 && sharedView ? (
           <div style={{ paddingTop: 32, color: "var(--ink-2)", fontSize: 14 }}>
-            {sharedView
-              ? "Nothing shared into this space yet. Open an account to share it."
-              : "No accounts yet. Tap + Add bank to connect one."}
+            Nothing shared into this space yet. Open an account to share it.
           </div>
         ) : null}
 
