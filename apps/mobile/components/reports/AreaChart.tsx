@@ -1,6 +1,7 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import Svg, { Line, Path, Text as SvgText } from "react-native-svg";
 import { fonts, type Palette } from "@cvc/ui";
+import { EmptyChart } from "./ChartStates";
 
 interface Point {
   label: string;
@@ -14,13 +15,7 @@ interface Props {
 
 export function AreaChart({ palette, data }: Props) {
   if (data.length < 2) {
-    return (
-      <View style={{ height: 200, alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink3 }}>
-          Add an account to see net-worth history
-        </Text>
-      </View>
-    );
+    return <EmptyChart palette={palette} label="Add an account to see net-worth history" height={200} />;
   }
   const W = 320;
   const H = 180;

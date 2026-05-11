@@ -402,7 +402,7 @@ export default function Dashboard() {
             key={id}
             title={meta.label}
             action="Manage"
-            onActionPress={() => router.push("/settings/payment-links")}
+            onActionPress={() => router.push("/accounts")}
           >
             {data ? (
               <FundingCoverageCard report={data.funding} />

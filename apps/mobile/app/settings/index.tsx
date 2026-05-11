@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { fonts } from "@cvc/ui";
@@ -9,7 +9,7 @@ import { useTheme } from "../../lib/theme";
 import { useAuth } from "../../hooks/useAuth";
 import { useSpaces } from "../../hooks/useSpaces";
 import { useTier } from "../../hooks/useTier";
-import { Group, PageHeader, ProChip, Row, SectionLabel } from "../../components/settings/SettingsAtoms";
+import { Group, PageHeader, ProChip, ProfileRow, PromotedCard, Row, SectionLabel } from "../../components/settings/SettingsAtoms";
 import { Si } from "../../components/settings/settingsGlyphs";
 
 const VERSION = (Constants.expoConfig?.version as string | undefined) ?? "2.4.1";
@@ -58,110 +58,60 @@ export default function SettingsHome() {
     setBiometricsEnabled(null);
   }, []);
 
-  async function signOut() {
-    await supabase.auth.signOut();
-    router.replace("/(auth)/sign-in");
+  function confirmSignOut() {
+    Alert.alert(
+      "Sign out?",
+      "You'll need your password to sign back in.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign out",
+          style: "destructive",
+          onPress: async () => {
+            await supabase.auth.signOut();
+            router.replace("/(auth)/sign-in");
+          },
+        },
+      ],
+    );
   }
 
   const email = user?.email ?? "";
   const initials = initialsFor(displayName, email);
-  const securitySub = has2fa === null ? "Loading…" : `2FA ${has2fa ? "on" : "off"}${biometricsEnabled === true ? " · biometrics on" : ""}`;
+  const securitySub =
+    has2fa === null
+      ? undefined
+      : `2FA ${has2fa ? "on" : "off"}${biometricsEnabled === true ? " · biometrics on" : ""}`;
   const isPro = tier !== "starter";
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.canvas }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 80, paddingTop: 50 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 80, paddingTop: 4 }}>
         {/* Header */}
         <PageHeader palette={palette} title="Settings" />
 
         {/* Profile card */}
         <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 4 }}>
-          <Pressable
+          <ProfileRow
+            palette={palette}
+            initials={initials}
+            title={displayName || email || "Your profile"}
+            sub={email}
+            chip={isPro ? <ProChip palette={palette} tone="brand">CLEAR PRO</ProChip> : undefined}
             onPress={() => router.push("/settings/profile")}
-            android_ripple={{ color: palette.tinted }}
-            style={({ pressed }) => ({
-              padding: 14,
-              borderRadius: 16,
-              backgroundColor: palette.surface,
-              borderWidth: 1,
-              borderColor: palette.line,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 12,
-              opacity: pressed ? 0.92 : 1,
-            })}
-          >
-            <View
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 999,
-                backgroundColor: "oklch(85% 0.060 30)",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 20, fontWeight: "500", color: "oklch(30% 0.060 30)" }}>
-                {initials}
-              </Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 16, fontWeight: "500", color: palette.ink1 }} numberOfLines={1}>
-                {displayName || email || "Your profile"}
-              </Text>
-              <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3, marginTop: 2 }} numberOfLines={1}>
-                {email}
-              </Text>
-              {isPro ? (
-                <View style={{ marginTop: 6, flexDirection: "row" }}>
-                  <ProChip palette={palette} tone="brand">CLEAR PRO</ProChip>
-                </View>
-              ) : null}
-            </View>
-            {Si.chevR(palette.ink3)}
-          </Pressable>
+          />
         </View>
 
         {/* Promoted: 2FA — only when not enrolled */}
         {has2fa === false ? (
           <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
-            <Pressable
+            <PromotedCard
+              palette={palette}
+              glyph="shield"
+              title="Turn on two-factor auth"
+              body="30 seconds. Adds a second check at login — strongly recommended."
               onPress={() => router.push("/settings/security")}
-              android_ripple={{ color: palette.tinted }}
-              style={({ pressed }) => ({
-                padding: 14,
-                borderRadius: 14,
-                backgroundColor: palette.warnTint,
-                borderWidth: 1,
-                borderColor: mode === "dark" ? "oklch(40% 0.080 65)" : "oklch(88% 0.040 65)",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                opacity: pressed ? 0.92 : 1,
-              })}
-            >
-              <View
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  backgroundColor: palette.surface,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {Si.shield(palette.warn)}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.ink1 }}>
-                  Turn on two-factor auth
-                </Text>
-                <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink2, marginTop: 2, lineHeight: 16 }}>
-                  30 seconds. Adds a second check at login — strongly recommended.
-                </Text>
-              </View>
-              {Si.chevR(palette.ink2)}
-            </Pressable>
+            />
           </View>
         ) : null}
 
@@ -178,14 +128,23 @@ export default function SettingsHome() {
         {/* PLAN */}
         <SectionLabel palette={palette}>PLAN</SectionLabel>
         <Group palette={palette}>
-          <Row palette={palette} mode={mode} glyph="star" hue={45} title="Subscription & Billing" value={tierLabel(tier)} onPress={() => router.push("/settings/subscription")} />
+          <Row
+            palette={palette}
+            mode={mode}
+            glyph="star"
+            hue={45}
+            title="Subscription & Billing"
+            sub={isPro ? "Manage plan, payment, invoices" : undefined}
+            value={tierLabel(tier)}
+            onPress={() => router.push("/settings/subscription")}
+          />
           <Row
             palette={palette}
             mode={mode}
             glyph="plug"
             hue={220}
             title="Connected Services"
-            sub={plaidCount === null ? "Loading…" : `Plaid · ${plaidCount} ${plaidCount === 1 ? "institution" : "institutions"}`}
+            sub={plaidCount === null ? undefined : `Plaid · ${plaidCount} ${plaidCount === 1 ? "institution" : "institutions"}`}
             last
             onPress={() => router.push("/settings/connected")}
           />
@@ -207,19 +166,33 @@ export default function SettingsHome() {
         {/* Sign out */}
         <View style={{ paddingHorizontal: 16, paddingTop: 24 }}>
           <Pressable
-            onPress={signOut}
-            android_ripple={{ color: palette.tinted }}
+            onPress={confirmSignOut}
+            android_ripple={{ color: palette.negTint }}
             style={({ pressed }) => ({
               height: 48,
               borderRadius: 12,
               backgroundColor: palette.surface,
               borderWidth: 1,
-              borderColor: palette.line,
+              borderColor: palette.negTint,
+              flexDirection: "row",
               alignItems: "center",
               justifyContent: "center",
+              gap: 10,
               opacity: pressed ? 0.92 : 1,
             })}
           >
+            <View
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 8,
+                backgroundColor: palette.negTint,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {Si.signOut(palette.neg, 14)}
+            </View>
             <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.neg }}>Sign out</Text>
           </Pressable>
         </View>

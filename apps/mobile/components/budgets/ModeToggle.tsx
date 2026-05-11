@@ -1,6 +1,7 @@
 import { Pressable, Text, View } from "react-native";
 import type { Palette } from "@cvc/ui";
 import { fonts } from "@cvc/ui";
+import { haptics } from "../../lib/haptics";
 
 export type BudgetMode = "monthly" | "paycheck";
 
@@ -28,13 +29,19 @@ export function ModeToggle({ palette, value, onChange }: Props) {
           palette={palette}
           label="Monthly"
           active={value === "monthly"}
-          onPress={() => onChange("monthly")}
+          onPress={() => {
+            if (value !== "monthly") haptics.selection();
+            onChange("monthly");
+          }}
         />
         <Segment
           palette={palette}
-          label="By Paycheck"
+          label="Paycheck"
           active={value === "paycheck"}
-          onPress={() => onChange("paycheck")}
+          onPress={() => {
+            if (value !== "paycheck") haptics.selection();
+            onChange("paycheck");
+          }}
         />
       </View>
     </View>

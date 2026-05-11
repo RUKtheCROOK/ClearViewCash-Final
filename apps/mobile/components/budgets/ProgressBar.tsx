@@ -56,17 +56,31 @@ export function ProgressBar({ palette, spent, limit, height = 6 }: Props) {
         }}
       />
       {isOver ? (
-        <View
-          style={{
-            position: "absolute",
-            left: `${visualPct}%`,
-            top: 0,
-            bottom: 0,
-            right: 0,
-            backgroundColor: palette.warnTint,
-            opacity: 0.9,
-          }}
-        />
+        <>
+          <View
+            style={{
+              position: "absolute",
+              left: `${visualPct}%`,
+              top: 0,
+              bottom: 0,
+              right: 0,
+              backgroundColor: palette.warnTint,
+              opacity: 0.9,
+            }}
+          />
+          {/* Notch at the 100% boundary so "over" reads as a zone, not just a hue shift */}
+          <View
+            style={{
+              position: "absolute",
+              left: `${visualPct}%`,
+              top: -1,
+              bottom: -1,
+              width: 1.5,
+              marginLeft: -0.75,
+              backgroundColor: palette.warn,
+            }}
+          />
+        </>
       ) : null}
     </View>
   );

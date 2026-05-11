@@ -1,49 +1,46 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
+import { useRouter } from "expo-router";
 import { fonts } from "@cvc/ui";
-import {
-  getGoalsForView,
-  getSharesForGoal,
-  removeGoalShare,
-  setGoalShare,
-} from "@cvc/api-client";
+import { getGoalsForView } from "@cvc/api-client";
 import { goalProgressFraction, projectMonthsToGoal } from "@cvc/domain";
-import { supabase } from "../../lib/supabase";
-import { useApp } from "../../lib/store";
-import { useTheme } from "../../lib/theme";
-import { useEffectiveSharedView } from "../../lib/view";
-import { useSpaces } from "../../hooks/useSpaces";
+import { haptics } from "../../../lib/haptics";
+import { supabase } from "../../../lib/supabase";
+import { useApp } from "../../../lib/store";
+import { useTheme } from "../../../lib/theme";
+import { useEffectiveSharedView } from "../../../lib/view";
+import { useSpaces } from "../../../hooks/useSpaces";
 import {
   GoalEditSheet,
   type AccountOption,
   type EditableGoal,
-} from "../../components/GoalEditSheet";
-import { AggregateStrip } from "../../components/goals/AggregateStrip";
-import { JustReachedBanner } from "../../components/goals/JustReachedBanner";
-import { GoalCard, type GoalCardData } from "../../components/goals/GoalCard";
-import { AddGoalCard } from "../../components/goals/AddGoalCard";
-import { resolveBranding } from "../../components/goals/goalGlyphs";
-import { classifyStatus, type GoalStatus } from "../../components/goals/StatusPill";
+} from "../../../components/GoalEditSheet";
+import { SpaceSwitcherSheet } from "../../../components/SpaceSwitcherSheet";
+import { AggregateStrip } from "../../../components/goals/AggregateStrip";
+import { JustReachedBanner } from "../../../components/goals/JustReachedBanner";
+import { GoalCard, type GoalCardData } from "../../../components/goals/GoalCard";
+import { AddGoalCard } from "../../../components/goals/AddGoalCard";
+import { resolveBranding } from "../../../components/goals/goalGlyphs";
+import { classifyStatus, type GoalStatus } from "../../../components/goals/StatusPill";
+import { fmtMoneyShort } from "../../../components/goals/Num";
 
 export default function Goals() {
+  const router = useRouter();
   const { palette, mode } = useTheme();
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const setActiveSpace = useApp((s) => s.setActiveSpace);
   const pendingGoalDraft = useApp((s) => s.pendingGoalDraft);
   const setPendingGoalDraft = useApp((s) => s.setPendingGoalDraft);
-  const { spaces, activeSpace } = useSpaces();
+  const { activeSpace } = useSpaces();
   const { sharedView, toggleVisible } = useEffectiveSharedView(activeSpace);
   const toggleView = useApp((s) => s.toggleView);
 
   const [goals, setGoals] = useState<EditableGoal[]>([]);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
-  const [sharesByGoal, setSharesByGoal] = useState<Record<string, Set<string>>>({});
-  const [editing, setEditing] = useState<EditableGoal | null>(null);
   const [prefillAccount, setPrefillAccount] = useState<AccountOption | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [shareUiFor, setShareUiFor] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [spaceSwitcherOpen, setSpaceSwitcherOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string>("");
 
   const balanceById = useMemo(
@@ -51,13 +48,11 @@ export default function Goals() {
     [accounts],
   );
 
-  const shareableSpaces = useMemo(
-    () => spaces.filter((s) => s.id !== activeSpaceId),
-    [spaces, activeSpaceId],
-  );
-
   const reload = useCallback(async () => {
-    if (!activeSpaceId) return;
+    if (!activeSpaceId) {
+      setLoaded(true);
+      return;
+    }
     const [g, accs] = await Promise.all([
       getGoalsForView(supabase, { spaceId: activeSpaceId, includeShared: sharedView }),
       supabase.from("accounts").select("id, name, type, current_balance"),
@@ -65,17 +60,13 @@ export default function Goals() {
     const goalRows = g as unknown as EditableGoal[];
     setGoals(goalRows);
     setAccounts((accs.data ?? []) as AccountOption[]);
-    const ownIds = goalRows.filter((row) => row.space_id === activeSpaceId).map((r) => r.id);
-    if (ownIds.length === 0) {
-      setSharesByGoal({});
-      return;
-    }
-    const shareLists = await Promise.all(ownIds.map((id) => getSharesForGoal(supabase, id)));
-    const map: Record<string, Set<string>> = {};
-    ownIds.forEach((id, i) => {
-      map[id] = new Set(shareLists[i]);
-    });
-    setSharesByGoal(map);
+    setLoaded(true);
+  }, [activeSpaceId, sharedView]);
+
+  // Reset loaded when the active space changes so we don't briefly show
+  // another space's goals while the new reload is in flight.
+  useEffect(() => {
+    setLoaded(false);
   }, [activeSpaceId, sharedView]);
 
   useEffect(() => {
@@ -92,7 +83,6 @@ export default function Goals() {
       type: "credit",
       current_balance: pendingGoalDraft.balance_cents,
     });
-    setEditing(null);
     setSheetOpen(true);
     setPendingGoalDraft(null);
   }, [pendingGoalDraft, setPendingGoalDraft]);
@@ -170,37 +160,16 @@ export default function Goals() {
     return { savedCents, savedGoalCount, paidDownCents, monthlyTotalCents };
   }, [cards]);
 
-  const reachedCard = useMemo(() => cards.find((c) => c.data.status === "done") ?? null, [cards]);
+  const reachedCards = useMemo(() => cards.filter((c) => c.data.status === "done"), [cards]);
 
   function startNew() {
-    setEditing(null);
+    haptics.selection();
     setPrefillAccount(null);
     setSheetOpen(true);
   }
 
-  function startEdit(g: EditableGoal) {
-    if (g.space_id !== activeSpaceId) return;
-    setEditing(g);
-    setPrefillAccount(null);
-    setSheetOpen(true);
-  }
-
-  async function toggleShare(goalId: string, spaceId: string) {
-    setBusy(true);
-    setError("");
-    try {
-      const current = sharesByGoal[goalId] ?? new Set<string>();
-      if (current.has(spaceId)) {
-        await removeGoalShare(supabase, { goal_id: goalId, space_id: spaceId });
-      } else {
-        await setGoalShare(supabase, { goal_id: goalId, space_id: spaceId });
-      }
-      await reload();
-    } catch (e) {
-      setError((e as Error).message ?? "Could not update share.");
-    } finally {
-      setBusy(false);
-    }
+  function openGoal(g: EditableGoal) {
+    router.push({ pathname: "/goals/[id]", params: { id: g.id } });
   }
 
   const spaceTintHex = activeSpace?.tint ?? null;
@@ -235,14 +204,24 @@ export default function Goals() {
               <SpacePill
                 name={activeSpace.name}
                 tintHex={spaceTintHex}
-                onPress={() => {
-                  if (spaces.length > 1) {
-                    const idx = spaces.findIndex((s) => s.id === activeSpaceId);
-                    const next = spaces[(idx + 1) % spaces.length];
-                    if (next) setActiveSpace(next.id);
-                  }
-                }}
+                onPress={() => setSpaceSwitcherOpen(true)}
               />
+            ) : null}
+            {loaded && cards.length > 0 ? (
+              <Text
+                style={{
+                  marginTop: 6,
+                  fontFamily: fonts.ui,
+                  fontSize: 12,
+                  color: palette.ink3,
+                }}
+              >
+                {cards.length} goal{cards.length === 1 ? "" : "s"}
+                {aggregate.savedCents > 0 ? ` · ${fmtMoneyShort(aggregate.savedCents)} saved` : ""}
+                {aggregate.monthlyTotalCents > 0
+                  ? ` · ${fmtMoneyShort(aggregate.monthlyTotalCents)}/mo`
+                  : ""}
+              </Text>
             ) : null}
           </View>
 
@@ -280,6 +259,11 @@ export default function Goals() {
                 alignItems: "center",
                 justifyContent: "center",
                 opacity: pressed ? 0.9 : 1,
+                shadowColor: palette.brand,
+                shadowOffset: { width: 0, height: 3 },
+                shadowOpacity: 0.18,
+                shadowRadius: 6,
+                elevation: 3,
               })}
               accessibilityLabel="New goal"
             >
@@ -296,7 +280,7 @@ export default function Goals() {
               marginHorizontal: 16,
               marginBottom: 12,
               padding: 10,
-              borderRadius: 12,
+              borderRadius: 14,
               backgroundColor: palette.warnTint,
             }}
           >
@@ -304,12 +288,12 @@ export default function Goals() {
           </View>
         ) : null}
 
-        {cards.length === 0 ? (
+        {!loaded ? null : cards.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
             <View
               style={{
                 padding: 28,
-                borderRadius: 18,
+                borderRadius: 14,
                 backgroundColor: palette.surface,
                 borderWidth: 1,
                 borderColor: palette.line,
@@ -340,28 +324,17 @@ export default function Goals() {
               >
                 A fund, a thing, a debt to clear. We&apos;ll track the pace and tell you if you&apos;re ahead or behind.
               </Text>
-              <Pressable
-                onPress={startNew}
-                style={({ pressed }) => ({
-                  marginTop: 18,
-                  paddingHorizontal: 18,
-                  height: 46,
-                  borderRadius: 12,
-                  backgroundColor: palette.brand,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexDirection: "row",
-                  gap: 6,
-                  opacity: pressed ? 0.9 : 1,
-                })}
+              <Text
+                style={{
+                  marginTop: 14,
+                  fontFamily: fonts.ui,
+                  fontSize: 12,
+                  color: palette.ink3,
+                  textAlign: "center",
+                }}
               >
-                <Svg width={16} height={16} viewBox="0 0 24 24">
-                  <Path d="M12 5v14M5 12h14" fill="none" stroke={palette.brandOn} strokeWidth={2.2} strokeLinecap="round" />
-                </Svg>
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.brandOn }}>
-                  Start your first goal
-                </Text>
-              </Pressable>
+                Tap <Text style={{ fontFamily: fonts.uiMedium, fontWeight: "600", color: palette.brand }}>+</Text> above to start your first.
+              </Text>
             </View>
           </View>
         ) : (
@@ -374,38 +347,25 @@ export default function Goals() {
               monthlyTotalCents={aggregate.monthlyTotalCents}
             />
 
-            {reachedCard ? (
+            {reachedCards.map((c) => (
               <JustReachedBanner
+                key={c.data.id}
                 palette={palette}
-                name={reachedCard.data.name}
-                detail={`${reachedCard.data.kind === "save" ? "Saved" : "Cleared"} $${(reachedCard.data.targetCents / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
-                onView={() => startEdit(reachedCard.raw)}
+                name={c.data.name}
+                detail={`${c.data.kind === "save" ? "Saved" : "Cleared"} $${(c.data.targetCents / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+                onView={() => openGoal(c.raw)}
               />
-            ) : null}
+            ))}
 
             <View style={{ paddingHorizontal: 16, gap: 12 }}>
               {cards.map((c) => (
-                <View key={c.data.id}>
-                  <GoalCard
-                    palette={palette}
-                    mode={mode}
-                    goal={c.data}
-                    onPress={() => startEdit(c.raw)}
-                  />
-                  {!c.data.readOnly && shareableSpaces.length > 0 ? (
-                    <ShareControls
-                      palette={palette}
-                      open={shareUiFor === c.data.id}
-                      busy={busy}
-                      shares={sharesByGoal[c.data.id] ?? new Set()}
-                      shareableSpaces={shareableSpaces}
-                      onToggleOpen={() =>
-                        setShareUiFor(shareUiFor === c.data.id ? null : c.data.id)
-                      }
-                      onToggleShare={(spaceId) => toggleShare(c.data.id, spaceId)}
-                    />
-                  ) : null}
-                </View>
+                <GoalCard
+                  key={c.data.id}
+                  palette={palette}
+                  mode={mode}
+                  goal={c.data}
+                  onPress={() => openGoal(c.raw)}
+                />
               ))}
             </View>
 
@@ -417,15 +377,19 @@ export default function Goals() {
       <GoalEditSheet
         visible={sheetOpen}
         spaceId={activeSpaceId}
-        goal={editing}
+        goal={null}
         prefillAccount={prefillAccount}
         accounts={accounts}
         onClose={() => {
           setSheetOpen(false);
-          setEditing(null);
           setPrefillAccount(null);
         }}
         onSaved={reload}
+      />
+
+      <SpaceSwitcherSheet
+        visible={spaceSwitcherOpen}
+        onClose={() => setSpaceSwitcherOpen(false)}
       />
     </View>
   );
@@ -476,76 +440,3 @@ function SpacePill({
   );
 }
 
-interface ShareControlsProps {
-  palette: ReturnType<typeof useTheme>["palette"];
-  open: boolean;
-  busy: boolean;
-  shares: Set<string>;
-  shareableSpaces: { id: string; name: string }[];
-  onToggleOpen: () => void;
-  onToggleShare: (spaceId: string) => void;
-}
-
-function ShareControls({
-  palette,
-  open,
-  busy,
-  shares,
-  shareableSpaces,
-  onToggleOpen,
-  onToggleShare,
-}: ShareControlsProps) {
-  return (
-    <View style={{ marginTop: 6, flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-      <Pressable
-        onPress={onToggleOpen}
-        style={{
-          paddingHorizontal: 10,
-          paddingVertical: 5,
-          borderRadius: 999,
-          backgroundColor: open ? palette.brandTint : palette.tinted,
-        }}
-      >
-        <Text
-          style={{
-            fontFamily: fonts.uiMedium,
-            fontSize: 11,
-            color: open ? palette.brand : palette.ink2,
-          }}
-        >
-          {open ? "Hide share" : `Share (${shares.size})`}
-        </Text>
-      </Pressable>
-      {open
-        ? shareableSpaces.map((s) => {
-            const on = shares.has(s.id);
-            return (
-              <Pressable
-                key={s.id}
-                onPress={() => onToggleShare(s.id)}
-                disabled={busy}
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: 999,
-                  backgroundColor: on ? palette.brand : palette.surface,
-                  borderWidth: on ? 0 : 1,
-                  borderColor: palette.line,
-                }}
-              >
-                <Text
-                  style={{
-                    fontFamily: fonts.uiMedium,
-                    fontSize: 11,
-                    color: on ? palette.brandOn : palette.ink2,
-                  }}
-                >
-                  {s.name}
-                </Text>
-              </Pressable>
-            );
-          })
-        : null}
-    </View>
-  );
-}

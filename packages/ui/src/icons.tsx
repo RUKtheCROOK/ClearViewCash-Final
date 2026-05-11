@@ -54,6 +54,14 @@ export const I = {
       </Svg>
     );
   },
+  chevL: (p: IconProps = {}) => {
+    const { color, size = 14, strokeWidth = 2 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M15 6l-6 6 6 6" />
+      </Svg>
+    );
+  },
   send: (p: IconProps = {}) => {
     const { color, size = 16, strokeWidth = 1.8 } = { ...defaultProps, ...p };
     return (
@@ -171,6 +179,16 @@ export const I = {
     return (
       <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
         <Path d="M12 5v14M5 12h14" />
+      </Svg>
+    );
+  },
+  more: (p: IconProps = {}) => {
+    const { color, size = 16 } = { ...defaultProps, ...p };
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke="none">
+        <Circle cx="5" cy="12" r="1.6" />
+        <Circle cx="12" cy="12" r="1.6" />
+        <Circle cx="19" cy="12" r="1.6" />
       </Svg>
     );
   },

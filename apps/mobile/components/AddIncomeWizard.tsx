@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import {
   defaultCategoryForType,
@@ -10,7 +11,7 @@ import {
 } from "@cvc/domain";
 import { upsertIncomeEvent } from "@cvc/api-client";
 import type { Cadence, IncomeSourceType } from "@cvc/types";
-import { fonts, type Palette, type ThemeMode } from "@cvc/ui";
+import { fonts, I, type Palette, type ThemeMode } from "@cvc/ui";
 import { supabase } from "../lib/supabase";
 import { IncomeIcon } from "./income/IncomeIcon";
 import { Num, fmtMoneyShort } from "./income/Num";
@@ -52,7 +53,6 @@ const CADENCE_OPTIONS: { id: Cadence; title: string; sub: string }[] = [
   { id: "biweekly", title: "Bi-weekly",  sub: "Every other week" },
   { id: "monthly",  title: "Monthly",    sub: "On the same day each month" },
   { id: "yearly",   title: "Yearly",     sub: "Once a year" },
-  { id: "custom",   title: "Custom…",    sub: "Set your own pattern" },
 ];
 
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -105,6 +105,7 @@ export function AddIncomeWizard({
   const [nextDueAt, setNextDueAt] = useState(todayIso());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
 
   // Reset when reopened.
   useEffect(() => {
@@ -237,19 +238,17 @@ export function AddIncomeWizard({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: palette.canvas, paddingTop: 50 }}>
+      <View style={{ flex: 1, backgroundColor: palette.canvas, paddingTop: insets.top }}>
         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Pressable
             onPress={back}
             style={{ width: 36, height: 36, borderRadius: 999, backgroundColor: palette.tinted, alignItems: "center", justifyContent: "center" }}
           >
-            <Svg width={18} height={18} viewBox="0 0 24 24">
-              {step === 1 ? (
-                <Path d="M6 6l12 12M18 6L6 18" fill="none" stroke={palette.ink2} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-              ) : (
-                <Path d="M15 6l-6 6 6 6" fill="none" stroke={palette.ink2} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-              )}
-            </Svg>
+            {step === 1 ? (
+              <I.close color={palette.ink2} size={18} />
+            ) : (
+              <I.chevL color={palette.ink2} size={18} />
+            )}
           </Pressable>
           <View style={{ flex: 1, alignItems: "center" }}>
             <Text style={{ fontFamily: fonts.num, fontSize: 10, color: palette.ink3, letterSpacing: 1 }}>

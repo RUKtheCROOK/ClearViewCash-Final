@@ -33,23 +33,13 @@ export function StepShell({
   const { palette } = useTheme();
   return (
     <View style={{ flex: 1, backgroundColor: palette.surface }}>
-      <View style={{ alignItems: "center", paddingTop: 8 }}>
-        <View
-          style={{
-            width: 36,
-            height: 5,
-            borderRadius: 3,
-            backgroundColor: palette.lineFirm,
-          }}
-        />
-      </View>
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
           paddingHorizontal: 18,
-          paddingTop: 4,
+          paddingTop: 8,
         }}
       >
         <View style={{ width: 32 }} />

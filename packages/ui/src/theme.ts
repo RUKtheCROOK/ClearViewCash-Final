@@ -33,6 +33,7 @@ export interface Palette {
   negTint: string;
   warn: string;
   warnTint: string;
+  warnLine: string;
   over: string;
   overTint: string;
   info: string;
@@ -43,6 +44,9 @@ export interface Palette {
   // Skeleton
   skeleton: string;
   skeletonHi: string;
+  // Profile (avatar circle tinted for the Settings hub identity row)
+  profileTint: string;
+  profileInk: string;
 }
 
 export const lightPalette: Palette = {
@@ -68,6 +72,7 @@ export const lightPalette: Palette = {
   negTint: "#ffe7e4",      // oklch(95% 0.030 25)
   warn: "#be7100",         // oklch(62% 0.140 65)
   warnTint: "#fdebda",     // oklch(95% 0.030 65)
+  warnLine: "#ebd3bd",     // oklch(88% 0.040 65)
   over: "#b95628",         // oklch(54% 0.110 35)
   overTint: "#ffe9dd",     // oklch(95% 0.025 35)
   info: "#2b6991",         // oklch(50% 0.090 240)
@@ -76,6 +81,8 @@ export const lightPalette: Palette = {
   projectedTint: "#e7ecee",// oklch(94% 0.006 220)
   skeleton: "#edebe7",     // oklch(94% 0.006 90)
   skeletonHi: "#f3f2ed",   // oklch(96% 0.006 90)
+  profileTint: "#f3c0b7",  // oklch(85% 0.060 30)
+  profileInk: "#47211b",   // oklch(30% 0.060 30)
 };
 
 export const darkPalette: Palette = {
@@ -101,6 +108,7 @@ export const darkPalette: Palette = {
   negTint: "#442321",      // oklch(30% 0.050 25)
   warn: "#f0a556",         // oklch(78% 0.130 65)
   warnTint: "#3f2810",     // oklch(30% 0.050 65)
+  warnLine: "#653d10",     // oklch(40% 0.080 65)
   over: "#e89469",         // oklch(72% 0.110 35)
   overTint: "#3a2014",     // oklch(30% 0.050 35)
   info: "#6eacd7",         // oklch(72% 0.090 240)
@@ -109,6 +117,8 @@ export const darkPalette: Palette = {
   projectedTint: "#1a2024",// oklch(24% 0.012 240)
   skeleton: "#1a2024",     // oklch(24% 0.012 240)
   skeletonHi: "#242a2e",   // oklch(28% 0.012 240)
+  profileTint: "#4d2620",  // oklch(32% 0.060 30)
+  profileInk: "#f3c0b7",   // oklch(85% 0.060 30)
 };
 
 export function paletteFor(mode: ThemeMode): Palette {

@@ -4,7 +4,7 @@ import { router, useFocusEffect } from "expo-router";
 import { fonts } from "@cvc/ui";
 import { supabase } from "../../../lib/supabase";
 import { useTheme } from "../../../lib/theme";
-import { Group, PageHeader, Row, SectionLabel } from "../../../components/settings/SettingsAtoms";
+import { Group, PageHeader, Row, RowSkeleton, SectionLabel } from "../../../components/settings/SettingsAtoms";
 
 interface Item {
   id: string;
@@ -14,7 +14,7 @@ interface Item {
 
 export default function Connected() {
   const { palette } = useTheme();
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<Item[] | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -47,7 +47,12 @@ export default function Connected() {
 
         <SectionLabel palette={palette}>INSTITUTIONS</SectionLabel>
         <Group palette={palette}>
-          {items.length === 0 ? (
+          {items === null ? (
+            <>
+              <RowSkeleton palette={palette} withSub />
+              <RowSkeleton palette={palette} withSub last />
+            </>
+          ) : items.length === 0 ? (
             <Row palette={palette} title="No connected services" sub="Link a bank from the Accounts tab to get started." right={null} last />
           ) : (
             items.map((i, idx) => (

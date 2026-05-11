@@ -1,4 +1,4 @@
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { Text, I, fonts, type Palette } from "@cvc/ui";
 
 function fmtDollars(cents: number): string {
@@ -51,7 +51,7 @@ export function LowBalanceBanner({
           <Text style={{ fontFamily: fonts.num, fontWeight: "600", color: p.warn }}>
             {fmtDollars(projectedLowCents)}
           </Text>
-          {" "}— your {fmtDollars(thresholdCents)} threshold.
+          {" "}— below your {fmtDollars(thresholdCents)} floor.
           {transferCents > 0 ? (
             <>
               {" "}Move{" "}
@@ -62,39 +62,6 @@ export function LowBalanceBanner({
             </>
           ) : null}
         </Text>
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-          <Pressable
-            style={({ pressed }) => ({
-              height: 32,
-              paddingHorizontal: 14,
-              borderRadius: 8,
-              backgroundColor: p.brand,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.9 : 1,
-            })}
-          >
-            <Text style={{ fontSize: 12, fontWeight: "500", color: p.brandOn }}>
-              {transferCents > 0 ? `Transfer ${fmtDollars(transferCents)}` : "Transfer funds"}
-            </Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => ({
-              height: 32,
-              paddingHorizontal: 14,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: `${p.warn}55`,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.85 : 1,
-            })}
-          >
-            <Text style={{ fontSize: 12, fontWeight: "500", color: p.warn }}>
-              Adjust threshold
-            </Text>
-          </Pressable>
-        </View>
       </View>
     </View>
   );

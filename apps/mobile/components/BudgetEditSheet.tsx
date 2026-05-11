@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { fonts } from "@cvc/ui";
+import { fonts, BottomSheet } from "@cvc/ui";
 import { deleteBudget, upsertBudget } from "@cvc/api-client";
 import { suggestBudgets, type Category, type CategorizedTxn } from "@cvc/domain";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
+import { haptics } from "../lib/haptics";
 import { CategoryDisc } from "./categories/CategoryDisc";
 import { CategoryPicker } from "./categories/CategoryPicker";
 import { Num, fmtMoneyShort } from "./budgets/Num";
@@ -24,7 +25,7 @@ export interface EditableBudget {
 const PERIOD_LABEL_LIMIT: Record<BudgetPeriod, string> = {
   monthly: "MONTHLY LIMIT",
   weekly: "WEEKLY LIMIT",
-  paycheck: "PER-PAYCHECK LIMIT",
+  paycheck: "PER PAYCHECK LIMIT",
 };
 
 const PERIOD_LABEL_PICKER: Record<BudgetPeriod, string> = {
@@ -144,6 +145,7 @@ export function BudgetEditSheet({
         period,
         rollover,
       });
+      haptics.medium();
       onSaved();
       onClose();
     } catch (e) {
@@ -159,6 +161,7 @@ export function BudgetEditSheet({
     setError(null);
     try {
       await deleteBudget(supabase, budget.id);
+      haptics.medium();
       onSaved();
       onClose();
     } catch (e) {
@@ -168,21 +171,20 @@ export function BudgetEditSheet({
     }
   }
 
+  function confirmRemove() {
+    if (!budget) return;
+    Alert.alert(
+      "Remove this budget?",
+      `“${budget.category}” will be removed. Past spending stays in your transactions; only the limit and rollover go away.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: remove },
+      ],
+    );
+  }
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        onPress={onClose}
-        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
-      >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
-          style={{
-            backgroundColor: palette.canvas,
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            maxHeight: "92%",
-          }}
-        >
+    <BottomSheet visible={visible} onClose={onClose} palette={palette}>
           {/* Top nav */}
           <View
             style={{
@@ -217,14 +219,17 @@ export function BudgetEditSheet({
               onPress={save}
               disabled={saving}
               style={({ pressed }) => ({
-                paddingHorizontal: 13,
-                paddingVertical: 7,
+                minWidth: 76,
+                paddingHorizontal: 18,
+                paddingVertical: 11,
                 borderRadius: 999,
                 backgroundColor: palette.brand,
+                alignItems: "center",
+                justifyContent: "center",
                 opacity: saving ? 0.6 : pressed ? 0.85 : 1,
               })}
             >
-              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12.5, fontWeight: "500", color: palette.brandOn }}>
+              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "600", color: palette.brandOn }}>
                 {saving ? "Saving…" : "Save"}
               </Text>
             </Pressable>
@@ -264,24 +269,6 @@ export function BudgetEditSheet({
                   />
                 </View>
               ) : null}
-              <View style={{ display: "none" }}>
-                <TextInput
-                  value={category}
-                  onChangeText={setCategory}
-                  placeholder="e.g. Groceries"
-                  placeholderTextColor={palette.ink4}
-                  autoCapitalize="words"
-                  style={{
-                    flex: 1,
-                    fontFamily: fonts.uiMedium,
-                    fontSize: 16,
-                    fontWeight: "500",
-                    color: palette.ink1,
-                    textAlign: "center",
-                    paddingVertical: 0,
-                  }}
-                />
-              </View>
             </View>
 
             {/* Suggestions */}
@@ -329,7 +316,7 @@ export function BudgetEditSheet({
 
             {/* Limit input — large, central */}
             <View style={{ paddingHorizontal: 24, paddingTop: 24, alignItems: "center" }}>
-              <Text style={{ fontFamily: fonts.num, fontSize: 10.5, color: palette.ink3, letterSpacing: 0.8, fontWeight: "600" }}>
+              <Text style={{ fontFamily: fonts.num, fontSize: 11, color: palette.ink3, letterSpacing: 0.8, fontWeight: "600" }}>
                 {PERIOD_LABEL_LIMIT[period]}
               </Text>
               <View
@@ -366,7 +353,7 @@ export function BudgetEditSheet({
                 />
               </View>
               {avgFromSuggest != null ? (
-                <Text style={{ marginTop: 8, fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>
+                <Text style={{ marginTop: 8, fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
                   Avg over last 3 months ·{" "}
                   <Num style={{ color: palette.ink2, fontWeight: "500" }}>{fmtMoneyShort(avgFromSuggest)}</Num>
                 </Text>
@@ -378,7 +365,7 @@ export function BudgetEditSheet({
               <Text
                 style={{
                   fontFamily: fonts.uiMedium,
-                  fontSize: 11.5,
+                  fontSize: 12,
                   fontWeight: "600",
                   color: palette.ink2,
                   textTransform: "uppercase",
@@ -398,38 +385,9 @@ export function BudgetEditSheet({
                   overflow: "hidden",
                 }}
               >
-                <View
-                  style={{
-                    paddingHorizontal: 14,
-                    paddingVertical: 12,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                    opacity: period === "paycheck" ? 0.5 : 1,
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.ink1 }}>
-                      Rollover unspent
-                    </Text>
-                    <Text style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 11, color: palette.ink3 }}>
-                      {period === "paycheck"
-                        ? "Unavailable for paycheck budgets"
-                        : "Carry leftover into next month"}
-                    </Text>
-                  </View>
-                  <Switch
-                    value={rollover && period !== "paycheck"}
-                    onValueChange={setRollover}
-                    disabled={period === "paycheck"}
-                    trackColor={{ false: palette.lineFirm, true: palette.brand }}
-                    thumbColor={palette.surface}
-                  />
-                </View>
-                <View style={{ height: 1, backgroundColor: palette.line }} />
                 <View style={{ paddingHorizontal: 14, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.ink1 }}>
+                    <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink1 }}>
                       Period
                     </Text>
                   </View>
@@ -466,15 +424,41 @@ export function BudgetEditSheet({
                   </View>
                 </View>
                 {period === "paycheck" ? (
-                  <>
-                    <View style={{ height: 1, backgroundColor: palette.line }} />
-                    <View style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
-                      <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3, lineHeight: 16 }}>
-                        Resets every paycheck. Cycle length comes from your income cadence on the Income tab.
-                      </Text>
-                    </View>
-                  </>
+                  <View style={{ paddingHorizontal: 14, paddingBottom: 12, paddingTop: 2 }}>
+                    <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3, lineHeight: 16 }}>
+                      Resets every paycheck. Cycle length comes from your income cadence on the Income tab.
+                    </Text>
+                  </View>
                 ) : null}
+                <View style={{ height: 1, backgroundColor: palette.line }} />
+                <View
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    opacity: period === "paycheck" ? 0.5 : 1,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink1 }}>
+                      Rollover unspent
+                    </Text>
+                    <Text style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 11, color: palette.ink3 }}>
+                      {period === "paycheck"
+                        ? "Unavailable for paycheck budgets"
+                        : "Carry leftover into next month"}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={rollover && period !== "paycheck"}
+                    onValueChange={setRollover}
+                    disabled={period === "paycheck"}
+                    trackColor={{ false: palette.lineFirm, true: palette.brand }}
+                    thumbColor={palette.surface}
+                  />
+                </View>
               </View>
             </View>
 
@@ -524,7 +508,7 @@ export function BudgetEditSheet({
             {budget ? (
               <View style={{ paddingHorizontal: 16, paddingTop: 18 }}>
                 <Pressable
-                  onPress={remove}
+                  onPress={confirmRemove}
                   disabled={deleting}
                   style={({ pressed }) => ({
                     height: 48,
@@ -540,16 +524,14 @@ export function BudgetEditSheet({
                   })}
                 >
                   <TrashIcon color={palette.warn} />
-                  <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.warn }}>
+                  <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.warn }}>
                     {deleting ? "Removing…" : "Remove this category"}
                   </Text>
                 </Pressable>
               </View>
             ) : null}
           </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    </BottomSheet>
   );
 }
 

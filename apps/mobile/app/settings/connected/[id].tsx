@@ -9,7 +9,7 @@ import {
 } from "@cvc/api-client";
 import { supabase } from "../../../lib/supabase";
 import { useTheme } from "../../../lib/theme";
-import { Group, PageHeader, ProChip, Row, SectionLabel } from "../../../components/settings/SettingsAtoms";
+import { CheckRow, Group, PageHeader, ProChip, Row, RowSkeleton, SectionLabel } from "../../../components/settings/SettingsAtoms";
 
 interface AccountRow {
   id: string;
@@ -108,7 +108,13 @@ export default function ConnectedDetail() {
 
         <SectionLabel palette={palette}>ACCOUNTS</SectionLabel>
         <Group palette={palette}>
-          {accounts.length === 0 ? (
+          {loading ? (
+            <>
+              <RowSkeleton palette={palette} withGlyph={false} withSub />
+              <RowSkeleton palette={palette} withGlyph={false} withSub />
+              <RowSkeleton palette={palette} withGlyph={false} withSub last />
+            </>
+          ) : accounts.length === 0 ? (
             <Row palette={palette} title="No accounts" right={null} last />
           ) : (
             <>
@@ -118,50 +124,18 @@ export default function ConnectedDetail() {
                 value={`${selected.size}/${accounts.length}`}
                 onPress={() => setSelected(allSelected ? new Set() : new Set(accounts.map((a) => a.id)))}
               />
-              {accounts.map((a, idx) => {
-                const checked = selected.has(a.id);
-                return (
-                  <Pressable
-                    key={a.id}
-                    onPress={() => toggle(a.id)}
-                    android_ripple={{ color: palette.tinted }}
-                    style={{
-                      paddingHorizontal: 18,
-                      paddingVertical: 12,
-                      borderBottomWidth: idx === accounts.length - 1 ? 0 : 1,
-                      borderBottomColor: palette.line,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 12,
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: 6,
-                        borderWidth: 1.5,
-                        borderColor: checked ? palette.brand : palette.lineFirm,
-                        backgroundColor: checked ? palette.brand : "transparent",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {checked ? (
-                        <Text style={{ color: palette.brandOn, fontSize: 14, lineHeight: 14, fontWeight: "700" }}>✓</Text>
-                      ) : null}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.ink1 }}>{a.name}</Text>
-                      <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3, marginTop: 2 }}>
-                        {a.type}
-                        {a.mask ? ` · •••${a.mask}` : ""}
-                      </Text>
-                    </View>
-                    <Money cents={a.current_balance} positiveColor />
-                  </Pressable>
-                );
-              })}
+              {accounts.map((a, idx) => (
+                <CheckRow
+                  key={a.id}
+                  palette={palette}
+                  title={a.name}
+                  sub={`${a.type}${a.mask ? ` · •••${a.mask}` : ""}`}
+                  value={<Money cents={a.current_balance} positiveColor />}
+                  selected={selected.has(a.id)}
+                  onToggle={() => toggle(a.id)}
+                  last={idx === accounts.length - 1}
+                />
+              ))}
             </>
           )}
         </Group>

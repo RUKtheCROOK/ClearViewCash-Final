@@ -27,7 +27,7 @@ export function GroupLabel({ palette, label, count, noun = "category", hue }: Pr
       <Text
         style={{
           fontFamily: fonts.uiMedium,
-          fontSize: 11.5,
+          fontSize: 12,
           fontWeight: "600",
           color: palette.ink2,
           textTransform: "uppercase",

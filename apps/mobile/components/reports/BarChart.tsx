@@ -1,6 +1,7 @@
 import { Text, View } from "react-native";
 import Svg, { G, Line, Rect, Text as SvgText } from "react-native-svg";
 import { fonts, type Palette } from "@cvc/ui";
+import { EmptyChart } from "./ChartStates";
 
 interface Bucket {
   label: string;
@@ -15,11 +16,7 @@ interface Props {
 
 export function BarChart({ palette, data }: Props) {
   if (data.length === 0) {
-    return (
-      <View style={{ height: 180, alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink3 }}>No transactions in this range</Text>
-      </View>
-    );
+    return <EmptyChart palette={palette} label="No transactions in this range" height={180} />;
   }
   const max = Math.max(1, ...data.map((d) => Math.max(d.cashIn, d.cashOut)));
   const W = 320;

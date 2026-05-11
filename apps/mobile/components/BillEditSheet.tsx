@@ -3,6 +3,7 @@ import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "r
 import Svg, { Path, Rect } from "react-native-svg";
 import {
   POPULAR_PAYEES,
+  formatLongDate,
   resolveBillBranding,
   todayIso,
   type BillGlyphKey,
@@ -20,6 +21,7 @@ import { supabase } from "../lib/supabase";
 import { BillIcon } from "./bills/BillIcon";
 import { Num } from "./bills/Num";
 import { SwitchRow } from "./bills/SwitchRow";
+import { DatePickerSheet } from "./DatePickerSheet";
 
 export type { EditableBill };
 
@@ -571,25 +573,11 @@ function Step2({
         />
       </View>
 
-      <Label palette={palette}>Due date (YYYY-MM-DD)</Label>
-      <TextInput
+      <Label palette={palette}>Due date</Label>
+      <DueDateField
+        palette={palette}
         value={dueDate}
-        onChangeText={onDueDate}
-        placeholder="2026-05-04"
-        placeholderTextColor={palette.ink3}
-        autoCapitalize="none"
-        style={{
-          paddingHorizontal: 14,
-          height: 50,
-          borderRadius: 12,
-          backgroundColor: palette.surface,
-          borderWidth: 1,
-          borderColor: palette.lineFirm,
-          fontFamily: fonts.ui,
-          fontSize: 14,
-          color: palette.ink1,
-          marginBottom: 16,
-        }}
+        onChange={onDueDate}
       />
 
       <Label palette={palette}>Pay from</Label>
@@ -785,6 +773,54 @@ function Step3({
           />
         </View>
       </View>
+    </>
+  );
+}
+
+function DueDateField({ palette, value, onChange }: { palette: Palette; value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const display = valid ? formatLongDate(value) : "Pick a date";
+  return (
+    <>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => ({
+          paddingHorizontal: 14,
+          height: 50,
+          borderRadius: 12,
+          backgroundColor: palette.surface,
+          borderWidth: 1,
+          borderColor: palette.lineFirm,
+          marginBottom: 16,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Svg width={16} height={16} viewBox="0 0 24 24">
+          <Rect x={3} y={5} width={18} height={16} rx={2} fill="none" stroke={palette.ink2} strokeWidth={1.6} />
+          <Path d="M3 9h18 M8 3v4 M16 3v4" fill="none" stroke={palette.ink2} strokeWidth={1.6} strokeLinecap="round" />
+        </Svg>
+        <Text style={{ flex: 1, fontFamily: fonts.ui, fontSize: 14, color: valid ? palette.ink1 : palette.ink3 }}>
+          {display}
+        </Text>
+        <Svg width={14} height={14} viewBox="0 0 24 24">
+          <Path d="M9 6l6 6-6 6" fill="none" stroke={palette.ink3} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        </Svg>
+      </Pressable>
+      <DatePickerSheet
+        visible={open}
+        title="Due date"
+        initialIso={valid ? value : todayIso()}
+        todayIso={todayIso()}
+        onClose={() => setOpen(false)}
+        onPick={(iso) => {
+          onChange(iso);
+          setOpen(false);
+        }}
+      />
     </>
   );
 }

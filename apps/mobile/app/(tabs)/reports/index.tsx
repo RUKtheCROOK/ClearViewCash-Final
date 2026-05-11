@@ -12,21 +12,22 @@ import {
   type ReportAccount,
 } from "@cvc/domain";
 import { getAccountBalanceHistory, getTransactionsForView } from "@cvc/api-client";
-import { supabase } from "../../lib/supabase";
-import { useApp } from "../../lib/store";
-import { useTheme } from "../../lib/theme";
-import { useEffectiveSharedView } from "../../lib/view";
-import { useSpaces } from "../../hooks/useSpaces";
-import { useTier } from "../../hooks/useTier";
-import { DateRangePill, SpaceFilterPill } from "../../components/reports/QuickFilters";
-import { FeaturedCard } from "../../components/reports/FeaturedCard";
-import { WideFeaturedCard } from "../../components/reports/WideFeaturedCard";
-import { ReportRow } from "../../components/reports/ReportRow";
-import { CashflowMini, DonutMini } from "../../components/reports/MiniCharts";
-import { REPORTS } from "../../components/reports/reportGlyphs";
-import { hueForCategory } from "../../components/reports/categoryHues";
-import { SavedExports } from "../../components/reports/SavedExports";
-import { loadSavedExports, type SavedExport } from "../../components/reports/savedExportsStore";
+import { supabase } from "../../../lib/supabase";
+import { useApp } from "../../../lib/store";
+import { useTheme } from "../../../lib/theme";
+import { useEffectiveSharedView } from "../../../lib/view";
+import { useSpaces } from "../../../hooks/useSpaces";
+import { useTier } from "../../../hooks/useTier";
+import { DateRangePill, SpaceFilterPill } from "../../../components/reports/QuickFilters";
+import { FeaturedCard } from "../../../components/reports/FeaturedCard";
+import { WideFeaturedCard } from "../../../components/reports/WideFeaturedCard";
+import { ReportRow } from "../../../components/reports/ReportRow";
+import { CashflowMini, DonutMini } from "../../../components/reports/MiniCharts";
+import { REPORTS, defaultMetaLabel } from "../../../components/reports/reportGlyphs";
+import { hueForCategory } from "../../../components/reports/categoryHues";
+import { SavedExports } from "../../../components/reports/SavedExports";
+import { SkeletonChart } from "../../../components/reports/ChartStates";
+import { loadSavedExports, type SavedExport } from "../../../components/reports/savedExportsStore";
 
 export default function Reports() {
   const { palette, mode } = useTheme();
@@ -44,6 +45,7 @@ export default function Reports() {
   const [previewNetWorth, setPreviewNetWorth] = useState<number[]>([]);
   const [netWorthLatest, setNetWorthLatest] = useState<number>(0);
   const [netWorthDelta, setNetWorthDelta] = useState<number | null>(null);
+  const [previewLoading, setPreviewLoading] = useState<boolean>(true);
 
   const [savedExports, setSavedExports] = useState<SavedExport[]>([]);
 
@@ -58,6 +60,7 @@ export default function Reports() {
   useEffect(() => {
     if (!canReports || !activeSpaceId) return;
     let cancelled = false;
+    setPreviewLoading(true);
     const previewRange: DateRange = (() => {
       const today = new Date();
       const from = new Date(today);
@@ -118,6 +121,8 @@ export default function Reports() {
           setNetWorthLatest(0);
           setNetWorthDelta(null);
         }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
       }
     })();
     return () => {
@@ -205,7 +210,7 @@ export default function Reports() {
           />
         </View>
 
-        {/* Pinned */}
+        {/* Featured */}
         <View style={{ paddingHorizontal: 18, paddingTop: 4, paddingBottom: 8, flexDirection: "row" }}>
           <Text
             style={{
@@ -218,7 +223,7 @@ export default function Reports() {
               letterSpacing: 0.6,
             }}
           >
-            Pinned
+            Featured
           </Text>
           <Text style={{ fontFamily: fonts.num, fontSize: 11, color: palette.ink3 }}>3 reports</Text>
         </View>
@@ -231,9 +236,12 @@ export default function Reports() {
             hue={cashFlowReport.hue}
             category={cashFlowReport.category}
             title={cashFlowReport.title}
-            meta="Monthly · 6 mo"
-            starred={cashFlowReport.starred}
-            chart={<CashflowMini buckets={previewCash} palette={palette} />}
+            meta={defaultMetaLabel(cashFlowReport.kind)}
+            chart={
+              previewLoading
+                ? <SkeletonChart palette={palette} variant="bars" height={80} />
+                : <CashflowMini buckets={previewCash} palette={palette} />
+            }
             onPress={() => navigateToReport(cashFlowReport.slug)}
           />
           <FeaturedCard
@@ -243,9 +251,12 @@ export default function Reports() {
             hue={categoryReport.hue}
             category={categoryReport.category}
             title={categoryReport.title}
-            meta={`Top ${previewSlices.length || 4} categories`}
-            starred={categoryReport.starred}
-            chart={<DonutMini slices={previewSlices} palette={palette} mode={mode} />}
+            meta={defaultMetaLabel(categoryReport.kind)}
+            chart={
+              previewLoading
+                ? <SkeletonChart palette={palette} variant="donut" height={80} />
+                : <DonutMini slices={previewSlices} palette={palette} mode={mode} />
+            }
             onPress={() => navigateToReport(categoryReport.slug)}
           />
         </View>
@@ -260,8 +271,7 @@ export default function Reports() {
             title={netWorthReport.title}
             valueCents={netWorthLatest}
             deltaPct={netWorthDelta}
-            starred={netWorthReport.starred}
-            series={previewNetWorth}
+            series={previewLoading ? [] : previewNetWorth}
             onPress={() => navigateToReport(netWorthReport.slug)}
           />
         </View>
@@ -299,7 +309,7 @@ export default function Reports() {
               hue={r.hue}
               title={r.title}
               sub={r.sub}
-              meta={metaLabel(r.kind)}
+              meta={defaultMetaLabel(r.kind)}
               starred={r.starred}
               comingSoon={!r.available}
               last={i === REPORTS.length - 1}
@@ -314,19 +324,3 @@ export default function Reports() {
   );
 }
 
-function metaLabel(kind: string): string {
-  switch (kind) {
-    case "cash_flow":
-      return "Monthly · 12 mo";
-    case "category":
-      return "This month";
-    case "net_worth":
-      return "Year to date";
-    case "income":
-      return "YTD";
-    case "activity":
-      return "This month";
-    default:
-      return "";
-  }
-}

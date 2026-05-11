@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { fonts, type Palette } from "@cvc/ui";
-import { ReportIcon, StarIcon, type ReportKind } from "./reportGlyphs";
+import { ReportIcon, type ReportKind } from "./reportGlyphs";
 
 interface Props {
   palette: Palette;
@@ -11,7 +11,6 @@ interface Props {
   category: string;
   title: string;
   meta: string;
-  starred?: boolean;
   chart: ReactNode;
   onPress: () => void;
 }
@@ -24,7 +23,6 @@ export function FeaturedCard({
   category,
   title,
   meta,
-  starred,
   chart,
   onPress,
 }: Props) {
@@ -41,11 +39,6 @@ export function FeaturedCard({
         gap: 10,
       }}
     >
-      {starred ? (
-        <View style={{ position: "absolute", right: 12, top: 12 }}>
-          <StarIcon color={palette.accent} filled />
-        </View>
-      ) : null}
       <ReportIcon kind={kind} hue={hue} mode={mode} size={36} />
       <View>
         <Text

@@ -33,6 +33,7 @@ interface Props {
   onClose: () => void;
   onChanged: () => void;
   onEdit: () => void;
+  onLongPressMarkPaid?: () => void;
 }
 
 interface BillFull {
@@ -82,7 +83,7 @@ function addDays(iso: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function BillDetailSheet({ visible, billId, onClose, onChanged, onEdit }: Props) {
+export function BillDetailSheet({ visible, billId, onClose, onChanged, onEdit, onLongPressMarkPaid }: Props) {
   const { palette, mode } = useTheme();
   const today = todayIso();
   const [bill, setBill] = useState<BillFull | null>(null);
@@ -366,6 +367,7 @@ export function BillDetailSheet({ visible, billId, onClose, onChanged, onEdit }:
                   <ActionBtn
                     label={busy === "pay" ? "Saving…" : "Mark paid"}
                     onPress={markPaid}
+                    onLongPress={onLongPressMarkPaid}
                     disabled={busy === "pay"}
                     palette={palette}
                     icon={
@@ -645,6 +647,7 @@ function ActionBtn({
   icon,
   tinted,
   onPress,
+  onLongPress,
   disabled,
   palette,
 }: {
@@ -652,21 +655,25 @@ function ActionBtn({
   icon: React.ReactNode;
   tinted?: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
   disabled?: boolean;
   palette: Palette;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={400}
       disabled={disabled}
-      style={{
+      style={({ pressed }) => ({
         flex: 1,
         paddingVertical: 12,
         borderRadius: 12,
         backgroundColor: tinted ? palette.brandTint : palette.tinted,
         alignItems: "center",
         gap: 6,
-      }}
+        opacity: pressed ? 0.85 : 1,
+      })}
     >
       {icon}
       <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12, fontWeight: "500", color: tinted ? palette.brand : palette.ink1 }}>

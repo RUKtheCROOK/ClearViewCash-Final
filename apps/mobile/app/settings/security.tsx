@@ -1,21 +1,33 @@
-import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Linking, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import * as LocalAuthentication from "expo-local-authentication";
+import QRCode from "react-native-qrcode-svg";
 import { fonts } from "@cvc/ui";
 import { supabase } from "../../lib/supabase";
 import { useTheme } from "../../lib/theme";
-import { Group, PageHeader, Row, SectionLabel } from "../../components/settings/SettingsAtoms";
-import { Si } from "../../components/settings/settingsGlyphs";
+import { Group, PageHeader, PromotedCard, Row, RowSkeleton, SectionLabel } from "../../components/settings/SettingsAtoms";
+
+function extractSecret(otpUri: string): string | null {
+  const match = otpUri.match(/[?&]secret=([^&]+)/i);
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
+// Group the secret into 4-char chunks so it's typeable: "ABCD EFGH IJKL".
+function formatSecret(secret: string): string {
+  return secret.replace(/(.{4})/g, "$1 ").trim();
+}
 
 export default function Security() {
-  const { palette, mode } = useTheme();
+  const { palette } = useTheme();
   const [factorId, setFactorId] = useState<string | null>(null);
   const [otpUri, setOtpUri] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [has2fa, setHas2fa] = useState<boolean | null>(null);
   const [biometricsAvailable, setBiometricsAvailable] = useState<boolean | null>(null);
+
+  const secret = useMemo(() => (otpUri ? extractSecret(otpUri) : null), [otpUri]);
 
   useEffect(() => {
     refresh();
@@ -99,37 +111,19 @@ export default function Security() {
         {/* Promoted card if no 2FA */}
         {has2fa === false && !otpUri ? (
           <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
-            <View
-              style={{
-                padding: 14,
-                borderRadius: 14,
-                backgroundColor: palette.warnTint,
-                borderWidth: 1,
-                borderColor: mode === "dark" ? "oklch(40% 0.080 65)" : "oklch(88% 0.040 65)",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-              }}
-            >
-              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: palette.surface, alignItems: "center", justifyContent: "center" }}>
-                {Si.shield(palette.warn)}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.ink1 }}>
-                  Add a second check at login
-                </Text>
-                <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink2, marginTop: 2, lineHeight: 16 }}>
-                  Use an authenticator app like 1Password, Authy, or Google Authenticator.
-                </Text>
-              </View>
-            </View>
+            <PromotedCard
+              palette={palette}
+              glyph="shield"
+              title="Add a second check at login"
+              body="Use an authenticator app like 1Password, Authy, or Google Authenticator."
+            />
           </View>
         ) : null}
 
         <SectionLabel palette={palette}>TWO-FACTOR AUTH</SectionLabel>
         <Group palette={palette}>
           {has2fa === null ? (
-            <Row palette={palette} title="Loading…" right={null} last />
+            <RowSkeleton palette={palette} last />
           ) : has2fa ? (
             <>
               <Row palette={palette} title="Status" value="Enabled" right={null} />
@@ -138,14 +132,69 @@ export default function Security() {
           ) : !otpUri ? (
             <Row palette={palette} title="Enable two-factor auth" sub="Set up a TOTP code in your authenticator." onPress={startEnroll} last />
           ) : (
-            <View style={{ padding: 18, gap: 12 }}>
+            <View style={{ padding: 18, gap: 14 }}>
               <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.ink1 }}>Scan in your authenticator</Text>
-              <View style={{ padding: 12, borderRadius: 10, backgroundColor: palette.sunken, borderWidth: 1, borderColor: palette.line }}>
-                <Text selectable style={{ fontFamily: fonts.num, fontSize: 11, color: palette.ink2, lineHeight: 16 }}>
-                  {otpUri}
-                </Text>
+
+              {/* QR code — primary path */}
+              <View style={{ alignItems: "center", paddingVertical: 4 }}>
+                <View
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    backgroundColor: "#ffffff",
+                    borderWidth: 1,
+                    borderColor: palette.line,
+                  }}
+                >
+                  <QRCode value={otpUri} size={184} backgroundColor="#ffffff" color="#0e181b" />
+                </View>
               </View>
-              <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>Enter the 6-digit code:</Text>
+
+              {/* Same-device shortcut: hand the URI to the OS so the user's
+                  authenticator app can intercept it directly. */}
+              <Pressable
+                onPress={() => Linking.openURL(otpUri).catch(() => undefined)}
+                style={({ pressed }) => ({
+                  height: 40,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: palette.lineFirm,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink1 }}>
+                  Open in authenticator app
+                </Text>
+              </Pressable>
+
+              {/* Manual-entry fallback — the secret only, not the full URI.
+                  Selectable so long-press → Copy works without a clipboard
+                  dependency. */}
+              {secret ? (
+                <View style={{ paddingTop: 4, gap: 6 }}>
+                  <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>
+                    Can't scan? Enter this code manually:
+                  </Text>
+                  <View style={{ padding: 12, borderRadius: 10, backgroundColor: palette.sunken, borderWidth: 1, borderColor: palette.line }}>
+                    <Text
+                      selectable
+                      style={{
+                        fontFamily: fonts.numMedium,
+                        fontSize: 14,
+                        color: palette.ink1,
+                        letterSpacing: 1,
+                        textAlign: "center",
+                      }}
+                    >
+                      {formatSecret(secret)}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+
+              <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3, marginTop: 2 }}>Enter the 6-digit code:</Text>
               <TextInput
                 value={code}
                 onChangeText={setCode}

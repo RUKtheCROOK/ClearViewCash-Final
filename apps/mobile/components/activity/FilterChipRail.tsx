@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, Text as RNText, View } from "react-native";
 import { I, fonts, type Palette } from "@cvc/ui";
+import { haptics } from "../../lib/haptics";
 
 export interface RailChip {
   key: string;
@@ -34,7 +35,10 @@ function FilterChip({ palette, chip }: { palette: Palette; chip: RailChip }) {
   const active = !!chip.active;
   return (
     <Pressable
-      onPress={chip.onPress}
+      onPress={() => {
+        haptics.selection();
+        chip.onPress?.();
+      }}
       style={{
         flexShrink: 0,
         height: 32,
@@ -79,7 +83,11 @@ function FilterChip({ palette, chip }: { palette: Palette; chip: RailChip }) {
           </RNText>
         </View>
       ) : null}
-      {!active && chip.hasIcon ? <I.chev color={palette.ink3} size={11} /> : null}
+      {chip.hasIcon ? (
+        <View style={{ transform: [{ rotate: active ? "180deg" : "0deg" }] }}>
+          <I.chev color={active ? palette.canvas : palette.ink3} size={11} />
+        </View>
+      ) : null}
     </Pressable>
   );
 }

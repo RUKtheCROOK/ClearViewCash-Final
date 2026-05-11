@@ -1,4 +1,4 @@
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import type { IncomeSourceType } from "@cvc/types";
 import type { Palette, ThemeMode } from "@cvc/ui";
@@ -26,6 +26,7 @@ interface Props {
   accountLabel: string | null;
   palette: Palette;
   mode: ThemeMode;
+  onMarkReceived?: () => void;
 }
 
 export function NextPaycheckHero({
@@ -40,15 +41,18 @@ export function NextPaycheckHero({
   accountLabel,
   palette,
   mode,
+  onMarkReceived,
 }: Props) {
   const heroBg = mode === "dark" ? "#1a2c20" : "#e6f1ea";
   const heroBorder = mode === "dark" ? "#264a35" : "#cfe5d6";
   const dividerColor = mode === "dark" ? "#1f3a29" : "#d8e7dd";
   const countdownLabel =
-    daysUntil < 0 ? `${-daysUntil} days late`
-    : daysUntil === 0 ? "today"
+    daysUntil === 0 ? "today"
     : daysUntil === 1 ? "tomorrow"
+    : daysUntil === -1 ? "1 day overdue"
+    : daysUntil < 0 ? `${-daysUntil} days overdue`
     : `in ${daysUntil} days`;
+  const showMarkReceived = onMarkReceived != null && daysUntil <= 0;
 
   const amountText = isRange && amountLow != null && amountHigh != null
     ? `${fmtMoneyShort(amountLow)}–${fmtMoneyShort(amountHigh)}`
@@ -120,6 +124,31 @@ export function NextPaycheckHero({
             </>
           ) : null}
         </View>
+
+        {showMarkReceived ? (
+          <Pressable
+            onPress={onMarkReceived}
+            style={({ pressed }) => ({
+              marginTop: 12,
+              alignSelf: "flex-start",
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              borderRadius: 999,
+              backgroundColor: palette.pos,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              opacity: pressed ? 0.88 : 1,
+            })}
+          >
+            <Svg width={12} height={12} viewBox="0 0 24 24">
+              <Path d="M5 12l4 4 10-10" fill="none" stroke={palette.brandOn} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12.5, fontWeight: "600", color: palette.brandOn, letterSpacing: 0.2 }}>
+              Mark received
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

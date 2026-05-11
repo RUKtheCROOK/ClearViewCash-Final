@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { Text, I, fonts, type Palette } from "@cvc/ui";
-import type { Bill, Cadence } from "@cvc/types";
+import type { Bill, Cadence, IncomeEvent } from "@cvc/types";
 import type { WhatIfMutation } from "@cvc/domain";
 
-const CATEGORIES = ["Vet", "Travel", "Repair", "Gift", "Subscription", "Custom"] as const;
-type Category = (typeof CATEGORIES)[number];
+type Kind = "expense" | "income";
+
+const EXPENSE_CATEGORIES = ["Vet", "Travel", "Repair", "Gift", "Subscription", "Custom"] as const;
+const INCOME_CATEGORIES = ["Paycheck", "Bonus", "Freelance", "Refund", "Gift", "Custom"] as const;
+type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+type IncomeCategory = (typeof INCOME_CATEGORIES)[number];
 
 export interface WhatIfSheetProps {
   open: boolean;
@@ -33,18 +37,25 @@ export function WhatIfSheet({
   selectedDate,
   palette: p,
 }: WhatIfSheetProps) {
+  const [kind, setKind] = useState<Kind>("expense");
   const [amount, setAmount] = useState("");
   const [label, setLabel] = useState("");
-  const [category, setCategory] = useState<Category>("Custom");
+  const [expenseCategory, setExpenseCategory] = useState<ExpenseCategory>("Custom");
+  const [incomeCategory, setIncomeCategory] = useState<IncomeCategory>("Custom");
 
   // Reset form whenever the sheet opens.
   useEffect(() => {
     if (open) {
+      setKind("expense");
       setAmount("");
       setLabel("");
-      setCategory("Custom");
+      setExpenseCategory("Custom");
+      setIncomeCategory("Custom");
     }
   }, [open]);
+
+  const category = kind === "expense" ? expenseCategory : incomeCategory;
+  const categories = kind === "expense" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
 
   const dateLabel = useMemo(() => {
     const [y, m, d] = selectedDate.split("-").map(Number);
@@ -71,26 +82,51 @@ export function WhatIfSheet({
   const handleSave = () => {
     if (!canSave) return;
     const dueDay = Math.max(1, Math.min(31, parseInt(selectedDate.slice(8, 10), 10) || 1));
-    const billName = label.trim() || category;
-    const synthetic: Bill = {
-      id: `whatif-${Date.now()}`,
-      space_id: spaceId,
-      owner_user_id: ownerUserId,
-      name: billName,
-      amount: amountCents,
-      due_day: dueDay,
-      cadence: "once" as Cadence,
-      next_due_at: selectedDate,
-      autopay: false,
-      linked_account_id: defaultFundingAccountId,
-      source: "manual",
-      recurring_group_id: null,
-      category: null,
-      payee_hue: null,
-      payee_glyph: null,
-      notes: null,
-    };
-    onSave({ addBill: synthetic });
+    const recordName = label.trim() || category;
+    if (kind === "expense") {
+      const synthetic: Bill = {
+        id: `whatif-${Date.now()}`,
+        space_id: spaceId,
+        owner_user_id: ownerUserId,
+        name: recordName,
+        amount: amountCents,
+        due_day: dueDay,
+        cadence: "once" as Cadence,
+        next_due_at: selectedDate,
+        autopay: false,
+        linked_account_id: defaultFundingAccountId,
+        source: "manual",
+        recurring_group_id: null,
+        category: null,
+        payee_hue: null,
+        payee_glyph: null,
+        notes: null,
+      };
+      onSave({ addBill: synthetic });
+    } else {
+      const synthetic: IncomeEvent = {
+        id: `whatif-${Date.now()}`,
+        space_id: spaceId,
+        owner_user_id: ownerUserId,
+        name: recordName,
+        amount: amountCents,
+        due_day: dueDay,
+        cadence: "once" as Cadence,
+        next_due_at: selectedDate,
+        autopay: false,
+        linked_account_id: defaultFundingAccountId,
+        source: "manual",
+        recurring_group_id: null,
+        category: null,
+        actual_amount: null,
+        received_at: null,
+        source_type: "one_time",
+        amount_low: null,
+        amount_high: null,
+        paused_at: null,
+      };
+      onSave({ addIncome: synthetic });
+    }
   };
 
   return (
@@ -120,25 +156,13 @@ export function WhatIfSheet({
             width: "100%",
           }}
         >
-          {/* Drag handle */}
-          <View style={{ alignItems: "center", paddingTop: 4 }}>
-            <View
-              style={{
-                width: 36,
-                height: 5,
-                borderRadius: 3,
-                backgroundColor: p.lineFirm,
-              }}
-            />
-          </View>
-
           {/* Header */}
           <View
             style={{
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
-              marginTop: 12,
+              marginTop: 14,
               marginBottom: 4,
             }}
           >
@@ -163,7 +187,7 @@ export function WhatIfSheet({
                   marginTop: 2,
                 }}
               >
-                Add expense on {dateLabel}
+                {kind === "expense" ? "Add expense" : "Add income"} on {dateLabel}
               </Text>
               <Text style={{ fontSize: 11, color: p.ink3, marginTop: 2 }}>
                 Tap a different day on the chart to change the date.
@@ -183,6 +207,55 @@ export function WhatIfSheet({
             >
               {I.close({ color: p.ink2, size: 16 })}
             </Pressable>
+          </View>
+
+          {/* Kind toggle */}
+          <View
+            style={{
+              flexDirection: "row",
+              backgroundColor: p.tinted,
+              padding: 3,
+              borderRadius: 9,
+              gap: 2,
+              marginTop: 12,
+            }}
+          >
+            {(["expense", "income"] as const).map((k) => {
+              const active = k === kind;
+              return (
+                <Pressable
+                  key={k}
+                  onPress={() => setKind(k)}
+                  style={{
+                    flex: 1,
+                    height: 30,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: active ? p.surface : "transparent",
+                    borderRadius: 7,
+                    ...(active
+                      ? {
+                          shadowColor: "#000",
+                          shadowOpacity: 0.06,
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowRadius: 2,
+                          elevation: 1,
+                        }
+                      : {}),
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: "500",
+                      color: active ? p.ink1 : p.ink3,
+                    }}
+                  >
+                    {k === "expense" ? "Add expense" : "Add income"}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
 
           {/* Amount input */}
@@ -235,12 +308,15 @@ export function WhatIfSheet({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ gap: 6, marginTop: 12, paddingRight: 4 }}
           >
-            {CATEGORIES.map((k) => {
+            {categories.map((k) => {
               const active = k === category;
               return (
                 <Pressable
                   key={k}
-                  onPress={() => setCategory(k)}
+                  onPress={() => {
+                    if (kind === "expense") setExpenseCategory(k as ExpenseCategory);
+                    else setIncomeCategory(k as IncomeCategory);
+                  }}
                   style={({ pressed }) => ({
                     height: 30,
                     paddingHorizontal: 12,
@@ -291,7 +367,9 @@ export function WhatIfSheet({
                   justifyContent: "center",
                 }}
               >
-                {I.arrowDown({ color: p.brandOn, size: 12 })}
+                {kind === "income"
+                  ? I.arrowUp({ color: p.brandOn, size: 12 })
+                  : I.arrowDown({ color: p.brandOn, size: 12 })}
               </View>
               <Text style={{ flex: 1, fontSize: 12, lineHeight: 17, color: p.brand }}>
                 {impactText}

@@ -1,13 +1,14 @@
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { I, Money, Text } from "@cvc/ui";
 import type { FundingCoverageReport } from "@cvc/domain";
 import { useTheme } from "../../lib/theme";
 
 interface Props {
   report: FundingCoverageReport;
+  onManage?: () => void;
 }
 
-export function FundingCoverageCard({ report }: Props) {
+export function FundingCoverageCard({ report, onManage }: Props) {
   const { palette } = useTheme();
   const { rows, pct, status, shortByCents } = report;
 
@@ -37,6 +38,24 @@ export function FundingCoverageCard({ report }: Props) {
         <Text variant="small" style={{ color: palette.ink3, marginTop: 4 }}>
           Add a payment link in Accounts to see how much of your card balances your funding accounts can cover.
         </Text>
+        {onManage ? (
+          <Pressable
+            onPress={onManage}
+            accessibilityLabel="Manage payment links in Accounts"
+            style={({ pressed }) => ({
+              marginTop: 12,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Text style={{ fontSize: 13, fontWeight: "500", color: palette.brand }}>
+              Manage in Accounts
+            </Text>
+            <I.chevR color={palette.brand} size={12} />
+          </Pressable>
+        ) : null}
       </View>
     );
   }

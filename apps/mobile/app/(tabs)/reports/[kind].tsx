@@ -22,38 +22,38 @@ import {
   type ReportAccount,
 } from "@cvc/domain";
 import { getAccountBalanceHistory, getTransactionsForView } from "@cvc/api-client";
-import { supabase } from "../../lib/supabase";
-import { useApp } from "../../lib/store";
-import { useTheme } from "../../lib/theme";
-import { useEffectiveSharedView } from "../../lib/view";
-import { useSpaces } from "../../hooks/useSpaces";
-import { useTier } from "../../hooks/useTier";
-import { DateRangePill, SpaceFilterPill } from "../../components/reports/QuickFilters";
+import { supabase } from "../../../lib/supabase";
+import { useApp } from "../../../lib/store";
+import { useTheme } from "../../../lib/theme";
+import { useEffectiveSharedView } from "../../../lib/view";
+import { useSpaces } from "../../../hooks/useSpaces";
+import { useTier } from "../../../hooks/useTier";
+import { DateRangePill, SpaceFilterPill } from "../../../components/reports/QuickFilters";
 import {
   BackIcon,
-  MoreIcon,
   ShareIcon,
   reportFromSlug,
-} from "../../components/reports/reportGlyphs";
-import { hueForCategory } from "../../components/reports/categoryHues";
-import { Num, fmtMoneyShort } from "../../components/reports/Num";
-import { DonutChart, DonutCallouts, type DonutSlice } from "../../components/reports/DonutChart";
-import { BarChart } from "../../components/reports/BarChart";
-import { AreaChart } from "../../components/reports/AreaChart";
-import { InsightBanner } from "../../components/reports/InsightBanner";
-import { MoMCompare } from "../../components/reports/MoMCompare";
+} from "../../../components/reports/reportGlyphs";
+import { hueForCategory } from "../../../components/reports/categoryHues";
+import { Num, fmtMoneyShort, fmtMoneyAbbrev } from "../../../components/reports/Num";
+import { DonutChart, DonutCallouts, type DonutSlice } from "../../../components/reports/DonutChart";
+import { BarChart } from "../../../components/reports/BarChart";
+import { AreaChart } from "../../../components/reports/AreaChart";
+import { InsightBanner } from "../../../components/reports/InsightBanner";
+import { MoMCompare } from "../../../components/reports/MoMCompare";
 import {
   CategoryDataTable,
   type CategoryTableRow,
-} from "../../components/reports/CategoryDataTable";
-import { CashFlowTable } from "../../components/reports/CashFlowTable";
-import { NetWorthTable } from "../../components/reports/NetWorthTable";
+} from "../../../components/reports/CategoryDataTable";
+import { CashFlowTable } from "../../../components/reports/CashFlowTable";
+import { NetWorthTable } from "../../../components/reports/NetWorthTable";
 import {
   ExportSheet,
   type ExportFormat,
   type ExportIncludeFlags,
-} from "../../components/reports/ExportSheet";
-import { pushSavedExport } from "../../components/reports/savedExportsStore";
+} from "../../../components/reports/ExportSheet";
+import { pushSavedExport } from "../../../components/reports/savedExportsStore";
+import { SkeletonChart } from "../../../components/reports/ChartStates";
 
 const FMT_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const FMT_DAY_MONTH = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
@@ -317,23 +317,11 @@ export default function ReportDetailScreen() {
             <View style={{ flex: 1 }}>
               <Text
                 style={{
-                  fontFamily: fonts.num,
-                  fontSize: 9.5,
-                  color: palette.ink3,
-                  letterSpacing: 0.7,
-                  fontWeight: "600",
-                }}
-              >
-                {meta.category.toUpperCase()} REPORT
-              </Text>
-              <Text
-                style={{
                   fontFamily: fonts.uiMedium,
-                  fontSize: 17,
+                  fontSize: 22,
                   fontWeight: "500",
                   color: palette.ink1,
-                  lineHeight: 21,
-                  marginTop: 1,
+                  letterSpacing: -0.3,
                 }}
               >
                 {meta.title}
@@ -352,19 +340,6 @@ export default function ReportDetailScreen() {
               accessibilityLabel="Share"
             >
               <ShareIcon color={palette.ink2} />
-            </Pressable>
-            <Pressable
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 999,
-                backgroundColor: palette.tinted,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-              accessibilityLabel="More"
-            >
-              <MoreIcon color={palette.ink2} />
             </Pressable>
           </View>
 
@@ -389,58 +364,60 @@ export default function ReportDetailScreen() {
             />
           </View>
 
-          {/* Granularity */}
-          {meta.kind !== "category" && meta.available ? (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 14, flexDirection: "row", gap: 6 }}>
-              {(["day", "week", "month"] as Granularity[]).map((g) => {
-                const active = granularity === g;
-                return (
-                  <Pressable
-                    key={g}
-                    onPress={() => setGranularity(g)}
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 999,
-                      backgroundColor: active ? palette.brandTint : palette.surface,
-                      borderWidth: 1,
-                      borderColor: active ? palette.brand : palette.line,
-                    }}
-                  >
-                    <Text
+          {/* Granularity (or single-period note for Category) */}
+          {meta.available ? (
+            meta.kind === "category" ? (
+              <View style={{ paddingHorizontal: 16, paddingBottom: 14, height: 32, justifyContent: "center" }}>
+                <Text
+                  style={{
+                    fontFamily: fonts.ui,
+                    fontSize: 12,
+                    color: palette.ink3,
+                  }}
+                >
+                  Single period · tap a slice to drill in
+                </Text>
+              </View>
+            ) : (
+              <View style={{ paddingHorizontal: 16, paddingBottom: 14, flexDirection: "row", gap: 6 }}>
+                {(["day", "week", "month"] as Granularity[]).map((g) => {
+                  const active = granularity === g;
+                  return (
+                    <Pressable
+                      key={g}
+                      onPress={() => setGranularity(g)}
                       style={{
-                        fontFamily: fonts.uiMedium,
-                        fontSize: 12,
-                        fontWeight: "500",
-                        color: active ? palette.brand : palette.ink2,
-                        textTransform: "capitalize",
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        backgroundColor: active ? palette.brandTint : palette.surface,
+                        borderWidth: 1,
+                        borderColor: active ? palette.brand : palette.line,
                       }}
                     >
-                      {g}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+                      <Text
+                        style={{
+                          fontFamily: fonts.uiMedium,
+                          fontSize: 12,
+                          fontWeight: "500",
+                          color: active ? palette.brand : palette.ink2,
+                          textTransform: "capitalize",
+                        }}
+                      >
+                        {g}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )
           ) : null}
 
           {/* Body */}
           {!meta.available ? (
             <ComingSoonDetail palette={palette} title={meta.title} />
           ) : loading ? (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
-              <View
-                style={{
-                  padding: 24,
-                  borderRadius: 16,
-                  backgroundColor: palette.surface,
-                  borderWidth: 1,
-                  borderColor: palette.line,
-                }}
-              >
-                <Text style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink3 }}>Loading…</Text>
-              </View>
-            </View>
+            <LoadingBody palette={palette} kind={meta.kind} />
           ) : meta.kind === "category" ? (
             <CategoryBody
               palette={palette}
@@ -458,11 +435,10 @@ export default function ReportDetailScreen() {
           )}
 
           {meta.available ? (
-            <View style={{ paddingHorizontal: 16, paddingBottom: 14, flexDirection: "row", gap: 8 }}>
+            <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
               <Pressable
                 onPress={() => setExportOpen(true)}
                 style={{
-                  flex: 1,
                   height: 50,
                   borderRadius: 12,
                   backgroundColor: palette.brand,
@@ -477,39 +453,7 @@ export default function ReportDetailScreen() {
                   Export…
                 </Text>
               </Pressable>
-              <Pressable
-                onPress={() => router.back()}
-                style={{
-                  flex: 1,
-                  height: 50,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: palette.lineFirm,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.ink1 }}>
-                  Back to reports
-                </Text>
-              </Pressable>
             </View>
-          ) : null}
-
-          {meta.kind === "net_worth" && meta.available ? (
-            <Text
-              style={{
-                marginHorizontal: 16,
-                marginTop: 4,
-                fontFamily: fonts.ui,
-                fontSize: 12,
-                color: palette.ink3,
-                lineHeight: 18,
-              }}
-            >
-              Historical balances are reconstructed by walking transactions backward from each
-              account&apos;s current balance. Off-platform transfers, fees, and interest accruals are not reflected.
-            </Text>
           ) : null}
         </ScrollView>
 
@@ -546,6 +490,35 @@ function presetLabelFor(key: RangePreset["key"] | "custom"): string | null {
     default:
       return null;
   }
+}
+
+function LoadingBody({
+  palette,
+  kind,
+}: {
+  palette: ReturnType<typeof useTheme>["palette"];
+  kind: string;
+}) {
+  const variant: "donut" | "bars" | "area" =
+    kind === "category" ? "donut" : kind === "cash_flow" ? "bars" : "area";
+  return (
+    <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
+      <View
+        style={{
+          padding: 16,
+          paddingTop: 18,
+          borderRadius: 16,
+          backgroundColor: palette.surface,
+          borderWidth: 1,
+          borderColor: palette.line,
+        }}
+      >
+        <View style={{ height: 12, width: 96, borderRadius: 4, backgroundColor: palette.tinted, marginBottom: 12 }} />
+        <View style={{ height: 28, width: 140, borderRadius: 6, backgroundColor: palette.tinted, marginBottom: 16 }} />
+        <SkeletonChart palette={palette} variant={variant} height={variant === "donut" ? 220 : 180} />
+      </View>
+    </View>
+  );
 }
 
 function CategoryBody({
@@ -646,7 +619,7 @@ function CategoryBody({
             palette={palette}
             mode={mode}
             slices={slices}
-            totalLabel={fmtMoneyShort(total)}
+            totalLabel={fmtMoneyAbbrev(total)}
             centerSub={`across ${slices.length} categor${slices.length === 1 ? "y" : "ies"}`}
             focusedId={focusedCategory}
             onFocus={onFocus}
@@ -665,8 +638,8 @@ function CategoryBody({
         <MoMCompare
           palette={palette}
           cells={[
-            { label: "THIS PERIOD", value: fmtMoneyShort(total) },
-            { label: "PREV", value: fmtMoneyShort(totalPrev), muted: true },
+            { label: "THIS PERIOD", value: fmtMoneyAbbrev(total) },
+            { label: "PREV", value: fmtMoneyAbbrev(totalPrev), muted: true },
             {
               label: "Δ",
               value: totalDelta === null ? "—" : `${totalDelta >= 0 ? "+" : ""}${Math.round(totalDelta)}%`,
@@ -736,7 +709,7 @@ function CashFlowBody({
                 letterSpacing: -0.6,
               }}
             >
-              {fmtMoneyShort(net)}
+              {fmtMoneyAbbrev(net)}
             </Num>
             <Text style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink3 }}>
               net of {fmtMoneyShort(cashIn)} in / {fmtMoneyShort(cashOut)} out
@@ -755,9 +728,9 @@ function CashFlowBody({
         <MoMCompare
           palette={palette}
           cells={[
-            { label: "IN", value: fmtMoneyShort(cashIn) },
-            { label: "OUT", value: fmtMoneyShort(-cashOut), muted: true },
-            { label: "NET", value: fmtMoneyShort(net), muted: net >= 0 },
+            { label: "IN", value: fmtMoneyAbbrev(cashIn) },
+            { label: "OUT", value: fmtMoneyAbbrev(-cashOut), muted: true },
+            { label: "NET", value: fmtMoneyAbbrev(net), muted: net >= 0 },
           ]}
         />
       </View>
@@ -835,7 +808,7 @@ function NetWorthBody({
             ) : null}
           </View>
           <Num style={{ fontSize: 32, fontWeight: "600", color: palette.ink1, letterSpacing: -0.6 }}>
-            {fmtMoneyShort(last?.netWorth ?? 0)}
+            {fmtMoneyAbbrev(last?.netWorth ?? 0)}
           </Num>
           <Text style={{ marginTop: 4, fontFamily: fonts.ui, fontSize: 13, color: palette.ink3 }}>
             {last && first
@@ -846,15 +819,27 @@ function NetWorthBody({
             <AreaChart palette={palette} data={netWorth.map((r) => ({ label: r.bucket, value: r.netWorth }))} />
           </View>
         </View>
+        <Text
+          style={{
+            marginTop: 8,
+            fontFamily: fonts.ui,
+            fontSize: 11.5,
+            color: palette.ink3,
+            lineHeight: 17,
+          }}
+        >
+          Historical balances are reconstructed by walking transactions backward from each
+          account&apos;s current balance. Off-platform transfers, fees, and interest accruals are not reflected.
+        </Text>
       </View>
 
       <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
         <MoMCompare
           palette={palette}
           cells={[
-            { label: "LATEST", value: fmtMoneyShort(last?.netWorth ?? 0) },
-            { label: "AT START", value: fmtMoneyShort(first?.netWorth ?? 0), muted: true },
-            { label: "Δ", value: `${delta >= 0 ? "+" : ""}${fmtMoneyShort(delta)}`, muted: delta >= 0 },
+            { label: "LATEST", value: fmtMoneyAbbrev(last?.netWorth ?? 0) },
+            { label: "AT START", value: fmtMoneyAbbrev(first?.netWorth ?? 0), muted: true },
+            { label: "Δ", value: `${delta >= 0 ? "+" : ""}${fmtMoneyAbbrev(delta)}`, muted: delta >= 0 },
           ]}
         />
       </View>

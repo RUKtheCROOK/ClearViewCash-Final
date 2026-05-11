@@ -289,6 +289,51 @@ export async function renameVendor(
   return { updated: matching.length };
 }
 
+/**
+ * Insert a manually-entered transaction.
+ *
+ * The `transactions` table requires a unique `plaid_transaction_id` (Plaid is
+ * the canonical source for everything else). For manual entries we mint a
+ * synthetic id prefixed `manual-` so it can never collide with a real Plaid
+ * payload.
+ */
+export async function createTransaction(
+  client: CvcSupabaseClient,
+  args: {
+    account_id: string;
+    amount: number; // cents, signed (negative = expense, positive = income)
+    posted_at: string; // YYYY-MM-DD
+    display_name?: string | null;
+    category?: string | null;
+    category_id?: string | null;
+    note?: string | null;
+  },
+) {
+  const { data: user } = await client.auth.getUser();
+  if (!user.user) throw new Error("Not authenticated");
+  const plaidId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  const insert: Tables["transactions"]["Insert"] = {
+    account_id: args.account_id,
+    amount: args.amount,
+    posted_at: args.posted_at,
+    owner_user_id: user.user.id,
+    plaid_transaction_id: plaidId,
+    pending: false,
+    is_recurring: false,
+    display_name: args.display_name ?? null,
+    category: args.category ?? null,
+    category_id: args.category_id ?? null,
+    note: args.note ?? null,
+  };
+  const { data, error } = await client
+    .from("transactions")
+    .insert(insert)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 export async function tagTransactionsRecurring(
   client: CvcSupabaseClient,
   args: { ids: string[]; recurring_group_id?: string | null },

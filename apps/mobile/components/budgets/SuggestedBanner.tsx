@@ -1,7 +1,7 @@
 import { Pressable, Text, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import type { Palette } from "@cvc/ui";
-import { fonts } from "@cvc/ui";
+import { fonts, I } from "@cvc/ui";
 import { Num, fmtMoneyShort } from "./Num";
 
 interface Props {
@@ -11,13 +11,14 @@ interface Props {
   txnCount: number;
   hint: string | null;
   onAdd: () => void;
+  onDismiss?: () => void;
 }
 
 /**
  * Soft, dismissible suggested-category banner shown below the summary card
  * when we detect spend in a category that isn't yet budgeted.
  */
-export function SuggestedBanner({ palette, category, spentCents, txnCount, hint, onAdd }: Props) {
+export function SuggestedBanner({ palette, category, spentCents, txnCount, hint, onAdd, onDismiss }: Props) {
   return (
     <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
       <View
@@ -46,7 +47,7 @@ export function SuggestedBanner({ palette, category, spentCents, txnCount, hint,
           <TagIcon color={palette.info} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12.5, fontWeight: "500", color: palette.ink1 }}>
+          <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink1 }}>
             <Num style={{ color: palette.ink1, fontWeight: "600" }}>{fmtMoneyShort(spentCents)}</Num> in{" "}
             <Text style={{ color: palette.info, fontWeight: "600" }}>{category}</Text> isn&apos;t budgeted
           </Text>
@@ -61,14 +62,31 @@ export function SuggestedBanner({ palette, category, spentCents, txnCount, hint,
             paddingHorizontal: 11,
             paddingVertical: 7,
             borderRadius: 999,
-            backgroundColor: palette.info,
+            backgroundColor: palette.brand,
             opacity: pressed ? 0.85 : 1,
           })}
         >
-          <Text style={{ fontFamily: fonts.uiMedium, fontSize: 11.5, fontWeight: "500", color: palette.brandOn }}>
+          <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12, fontWeight: "500", color: palette.brandOn }}>
             Add
           </Text>
         </Pressable>
+        {onDismiss ? (
+          <Pressable
+            onPress={onDismiss}
+            hitSlop={8}
+            accessibilityLabel="Dismiss suggestion"
+            style={({ pressed }) => ({
+              width: 26,
+              height: 26,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <I.close color={palette.ink3} size={14} />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

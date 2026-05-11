@@ -1,12 +1,11 @@
 import { Pressable, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { fonts, type Palette } from "@cvc/ui";
-import { Num, fmtMoneyShort } from "./Num";
+import { Num, fmtMoneyAbbrev } from "./Num";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   ReportIcon,
-  StarIcon,
   reportIconColors,
   type ReportKind,
 } from "./reportGlyphs";
@@ -20,7 +19,6 @@ interface Props {
   title: string;
   valueCents: number;
   deltaPct: number | null;
-  starred?: boolean;
   series: number[];
   onPress: () => void;
 }
@@ -34,7 +32,6 @@ export function WideFeaturedCard({
   title,
   valueCents,
   deltaPct,
-  starred,
   series,
   onPress,
 }: Props) {
@@ -86,13 +83,12 @@ export function WideFeaturedCard({
             {title}
           </Text>
         </View>
-        {starred ? <StarIcon color={palette.accent} filled /> : null}
       </View>
 
       <View style={{ marginTop: 12, flexDirection: "row", alignItems: "center", gap: 12 }}>
         <View style={{ flex: 1 }}>
           <Num style={{ fontSize: 22, fontWeight: "600", color: palette.ink1 }}>
-            {fmtMoneyShort(valueCents)}
+            {fmtMoneyAbbrev(valueCents)}
           </Num>
           {deltaPct !== null ? (
             <View

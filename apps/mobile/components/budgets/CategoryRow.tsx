@@ -1,11 +1,12 @@
 import { Pressable, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import type { Palette, ThemeMode } from "@cvc/ui";
-import { fonts } from "@cvc/ui";
+import { fonts, I } from "@cvc/ui";
 import { BudgetCategoryIcon } from "./BudgetCategoryIcon";
 import type { BudgetGlyphKey } from "./budgetGlyphs";
 import { Num, fmtMoneyShort } from "./Num";
 import { ProgressBar, classifyState } from "./ProgressBar";
+import { haptics } from "../../lib/haptics";
 
 export interface CategoryRowData {
   id: string;
@@ -37,7 +38,10 @@ export function CategoryRow({ palette, mode, cat, isLast, onPress }: Props) {
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        haptics.light();
+        onPress();
+      }}
       android_ripple={{ color: palette.tinted }}
       style={({ pressed }) => ({
         paddingHorizontal: 18,
@@ -56,7 +60,7 @@ export function CategoryRow({ palette, mode, cat, isLast, onPress }: Props) {
               numberOfLines={1}
               style={{
                 fontFamily: fonts.uiMedium,
-                fontSize: 14.5,
+                fontSize: 15,
                 fontWeight: "500",
                 color: palette.ink1,
                 flexShrink: 1,
@@ -77,7 +81,7 @@ export function CategoryRow({ palette, mode, cat, isLast, onPress }: Props) {
                 }}
               >
                 <RolloverIcon color={palette.brand} />
-                <Num style={{ fontSize: 9.5, fontWeight: "600", letterSpacing: 0.4, color: palette.brand }}>
+                <Num style={{ fontSize: 11, fontWeight: "600", letterSpacing: 0.4, color: palette.brand }}>
                   +{fmtMoneyShort(cat.rolloverInCents)}
                 </Num>
               </View>
@@ -85,30 +89,31 @@ export function CategoryRow({ palette, mode, cat, isLast, onPress }: Props) {
           </View>
           <View style={{ marginTop: 2 }}>
             {isOver ? (
-              <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>
+              <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
                 <Num style={{ color: palette.warn, fontWeight: "600" }}>{fmtMoneyShort(overBy)}</Num> over budget
               </Text>
             ) : isNear ? (
-              <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>
+              <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
                 <Num style={{ color: palette.accent, fontWeight: "500" }}>{fmtMoneyShort(remaining)}</Num> left ·{" "}
                 <Num>{pct}%</Num>
               </Text>
             ) : (
-              <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>
+              <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
                 <Num>{fmtMoneyShort(remaining)}</Num> left of <Num>{fmtMoneyShort(cat.limitCents)}</Num>
               </Text>
             )}
           </View>
         </View>
         <View style={{ alignItems: "flex-end", flexShrink: 0 }}>
-          <Num style={{ fontSize: 14.5, fontWeight: "600", color: isOver ? palette.warn : palette.ink1 }}>
+          <Num style={{ fontSize: 15, fontWeight: "600", color: isOver ? palette.warn : palette.ink1 }}>
             {fmtMoneyShort(cat.spentCents)}
           </Num>
-          <Num style={{ fontSize: 10.5, color: palette.ink3, marginTop: 2 }}>
+          <Num style={{ fontSize: 11, color: palette.ink3, marginTop: 2 }}>
             / {fmtMoneyShort(cat.limitCents)}
             {cat.periodSuffix ? <Text style={{ fontFamily: fonts.num }}> /{cat.periodSuffix}</Text> : null}
           </Num>
         </View>
+        <I.chevR color={palette.ink4} size={16} />
       </View>
       <View style={{ marginTop: 10 }}>
         <ProgressBar palette={palette} spent={cat.spentCents} limit={cat.limitCents} />

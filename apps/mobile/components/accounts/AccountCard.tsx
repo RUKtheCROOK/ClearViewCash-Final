@@ -42,6 +42,10 @@ export interface AccountCardData {
   onPress: () => void;
   onReconnectPress?: () => void;
   reconnecting?: boolean;
+  /** Optional tap on the "Effective available" row — opens an explainer sheet. */
+  onEffectivePress?: () => void;
+  /** Credit cards only: opens the payment-link wizard pre-selected to this card. */
+  onSetUpCoverage?: () => void;
 }
 
 export function AccountCard(props: AccountCardData) {
@@ -223,14 +227,46 @@ export function AccountCard(props: AccountCardData) {
 
         {props.links.length > 0 ? (
           <LinkStrip direction={props.linkDirection} links={props.links} />
+        ) : isCredit && props.onSetUpCoverage ? (
+          <Pressable
+            onPress={props.onSetUpCoverage}
+            accessibilityLabel="Set up coverage for this card"
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginTop: 4,
+              paddingVertical: 8,
+              paddingHorizontal: 10,
+              borderRadius: 10,
+              borderStyle: "dashed",
+              borderWidth: 1,
+              borderColor: palette.line,
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <I.link color={palette.ink3} size={12} />
+              <Text style={{ fontSize: 12, color: palette.ink2 }}>Not linked</Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Text style={{ fontSize: 12, fontWeight: "500", color: palette.brand }}>
+                Set up coverage
+              </Text>
+              <I.chevR color={palette.brand} size={11} />
+            </View>
+          </Pressable>
         ) : null}
 
         {!isCredit &&
         kind !== "invest" &&
         props.effectiveAvailableCents != null &&
         props.effectiveAvailableCents !== props.balanceCents ? (
-          <View
-            style={{
+          <Pressable
+            onPress={props.onEffectivePress}
+            disabled={!props.onEffectivePress}
+            accessibilityLabel="What is Effective available?"
+            style={({ pressed }) => ({
               flexDirection: "row",
               justifyContent: "space-between",
               alignItems: "center",
@@ -239,11 +275,15 @@ export function AccountCard(props: AccountCardData) {
               paddingHorizontal: 12,
               borderRadius: 10,
               backgroundColor: palette.sunken,
-            }}
+              opacity: pressed && props.onEffectivePress ? 0.7 : 1,
+            })}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <I.link color={palette.ink2} size={12} />
               <Text style={{ fontSize: 12, color: palette.ink2 }}>Effective available</Text>
+              {props.onEffectivePress ? (
+                <I.info color={palette.ink3} size={12} />
+              ) : null}
             </View>
             <Money
               cents={props.effectiveAvailableCents}
@@ -251,7 +291,7 @@ export function AccountCard(props: AccountCardData) {
               style={{ fontSize: 14, fontWeight: "600", color: palette.ink1 }}
               centsStyle={{ color: palette.ink3 }}
             />
-          </View>
+          </Pressable>
         ) : null}
 
         {isError && props.onReconnectPress ? (

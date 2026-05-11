@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Modal, Pressable, View } from "react-native";
+import { View } from "react-native";
+import { BottomSheet } from "@cvc/ui";
 import { useTheme } from "../../lib/theme";
 import {
   usePaymentLinkDraft,
@@ -71,90 +72,74 @@ export function PaymentLinkSheet({
   const visibleStep = skipPicker ? step : step;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-      <Pressable
-        onPress={close}
-        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
-      >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
-          style={{
-            height: "92%",
-            backgroundColor: palette.surface,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            overflow: "hidden",
-          }}
-        >
-          {!skipPicker && step === 1 ? (
-            <Step0CardPicker
-              cards={cards}
-              selectedId={draft.state.card?.id ?? null}
-              onSelect={(c) => draft.setCard(c)}
-              onContinue={() => setStep(2)}
-              onClose={close}
-            />
-          ) : null}
+    <BottomSheet visible={visible} onClose={close} palette={palette} maxHeight="92%">
+      <View style={{ height: "100%", backgroundColor: palette.surface }}>
+        {!skipPicker && step === 1 ? (
+          <Step0CardPicker
+            cards={cards}
+            selectedId={draft.state.card?.id ?? null}
+            onSelect={(c) => draft.setCard(c)}
+            onContinue={() => setStep(2)}
+            onClose={close}
+          />
+        ) : null}
 
-          {((!skipPicker && step === 2) || (skipPicker && step === 1)) &&
-          draft.state.card ? (
-            <Step1Funders
-              card={draft.state.card}
-              funders={funders}
-              selectedIds={draft.state.funderIds}
-              onToggle={draft.toggleFunder}
-              onContinue={() => setStep(skipPicker ? 2 : 3)}
-              onBack={() => setStep(skipPicker ? 1 : 1)}
-              onClose={close}
-              step={skipPicker ? 1 : 2}
-              total={totalShown}
-            />
-          ) : null}
+        {((!skipPicker && step === 2) || (skipPicker && step === 1)) &&
+        draft.state.card ? (
+          <Step1Funders
+            card={draft.state.card}
+            funders={funders}
+            selectedIds={draft.state.funderIds}
+            onToggle={draft.toggleFunder}
+            onContinue={() => setStep(skipPicker ? 2 : 3)}
+            onBack={() => setStep(skipPicker ? 1 : 1)}
+            onClose={close}
+            step={skipPicker ? 1 : 2}
+            total={totalShown}
+          />
+        ) : null}
 
-          {((!skipPicker && step === 3) || (skipPicker && step === 2)) &&
-          draft.state.card ? (
-            <Step2Split
-              card={draft.state.card}
-              funders={funders.filter((f) => draft.state.funderIds.includes(f.id))}
-              splits={draft.state.splits}
-              onSetSplit={draft.setSplit}
-              onEvenSplit={draft.evenSplitNow}
-              onContinue={() => setStep(skipPicker ? 3 : 4)}
-              onBack={() => setStep(skipPicker ? 1 : 2)}
-              onClose={close}
-              step={skipPicker ? 2 : 3}
-              total={totalShown}
-            />
-          ) : null}
+        {((!skipPicker && step === 3) || (skipPicker && step === 2)) &&
+        draft.state.card ? (
+          <Step2Split
+            card={draft.state.card}
+            funders={funders.filter((f) => draft.state.funderIds.includes(f.id))}
+            splits={draft.state.splits}
+            onSetSplit={draft.setSplit}
+            onEvenSplit={draft.evenSplitNow}
+            onContinue={() => setStep(skipPicker ? 3 : 4)}
+            onBack={() => setStep(skipPicker ? 1 : 2)}
+            onClose={close}
+            step={skipPicker ? 2 : 3}
+            total={totalShown}
+          />
+        ) : null}
 
-          {((!skipPicker && step === 4) || (skipPicker && step === 3)) &&
-          draft.state.card ? (
-            <Step3Scope
-              card={draft.state.card}
-              scope={draft.state.scope}
-              onSetScope={draft.setScope}
-              onSave={handleSave}
-              onBack={() => setStep(skipPicker ? 2 : 3)}
-              onClose={close}
-              spaceName={spaceName}
-              saving={draft.committing}
-              error={draft.error}
-              step={skipPicker ? 3 : 4}
-              total={totalShown}
-            />
-          ) : null}
+        {((!skipPicker && step === 4) || (skipPicker && step === 3)) &&
+        draft.state.card ? (
+          <Step3Scope
+            card={draft.state.card}
+            scope={draft.state.scope}
+            onSetScope={draft.setScope}
+            onSave={handleSave}
+            onBack={() => setStep(skipPicker ? 2 : 3)}
+            onClose={close}
+            spaceName={spaceName}
+            saving={draft.committing}
+            error={draft.error}
+            step={skipPicker ? 3 : 4}
+            total={totalShown}
+          />
+        ) : null}
 
-          {/* Fallback when picker is required but not yet picked. */}
-          {!skipPicker && step !== 1 && !draft.state.card ? (
-            <View />
-          ) : null}
+        {/* Fallback when picker is required but not yet picked. */}
+        {!skipPicker && step !== 1 && !draft.state.card ? <View /> : null}
 
-          {/* Suppress unused variable */}
-          <View style={{ position: "absolute", opacity: 0 }} accessible={false}>
-            <View accessible={false} testID={`step-${visibleStep}`} />
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        {/* Suppress unused variable */}
+        <View style={{ position: "absolute", opacity: 0 }} accessible={false}>
+          <View accessible={false} testID={`step-${visibleStep}`} />
+        </View>
+      </View>
+    </BottomSheet>
   );
 }

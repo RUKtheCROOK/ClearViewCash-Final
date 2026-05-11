@@ -1,7 +1,7 @@
 import { Pressable, Text, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import type { Palette, ThemeMode } from "@cvc/ui";
-import { fonts } from "@cvc/ui";
+import { fonts, I } from "@cvc/ui";
 import { BudgetCategoryIcon } from "./BudgetCategoryIcon";
 import type { BudgetGlyphKey } from "./budgetGlyphs";
 
@@ -69,7 +69,7 @@ export function EmptyState({ palette, mode, onAdd }: Props) {
           style={{
             marginTop: 10,
             fontFamily: fonts.ui,
-            fontSize: 13.5,
+            fontSize: 13,
             color: palette.ink2,
             lineHeight: 20,
             textAlign: "center",
@@ -89,9 +89,10 @@ export function EmptyState({ palette, mode, onAdd }: Props) {
             style={({ pressed }) => ({
               padding: 14,
               borderRadius: 14,
-              backgroundColor: palette.surface,
+              backgroundColor: "transparent",
               borderWidth: 1,
-              borderColor: palette.line,
+              borderStyle: "dashed",
+              borderColor: palette.lineFirm,
               flexDirection: "row",
               alignItems: "center",
               gap: 12,
@@ -101,7 +102,7 @@ export function EmptyState({ palette, mode, onAdd }: Props) {
             <BudgetCategoryIcon hue={q.hue} glyph={q.glyph} mode={mode} />
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14.5, fontWeight: "500", color: palette.ink1 }}>
+                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 15, fontWeight: "500", color: palette.ink1 }}>
                   {q.category}
                 </Text>
                 {q.badge ? (
@@ -121,7 +122,7 @@ export function EmptyState({ palette, mode, onAdd }: Props) {
               </View>
               <Text style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>{q.sub}</Text>
             </View>
-            <PlusIcon color={palette.ink3} />
+            <I.plus color={palette.ink3} size={18} strokeWidth={2.2} />
           </Pressable>
         ))}
       </View>
@@ -141,20 +142,12 @@ export function EmptyState({ palette, mode, onAdd }: Props) {
             opacity: pressed ? 0.9 : 1,
           })}
         >
-          <PlusIcon color={palette.brandOn} />
-          <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14.5, fontWeight: "500", color: palette.brandOn }}>
+          <I.plus color={palette.brandOn} size={18} strokeWidth={2.2} />
+          <Text style={{ fontFamily: fonts.uiMedium, fontSize: 15, fontWeight: "500", color: palette.brandOn }}>
             Add a budget
           </Text>
         </Pressable>
       </View>
     </View>
-  );
-}
-
-function PlusIcon({ color }: { color: string }) {
-  return (
-    <Svg width={18} height={18} viewBox="0 0 24 24">
-      <Path d="M12 5v14M5 12h14" fill="none" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
-    </Svg>
   );
 }

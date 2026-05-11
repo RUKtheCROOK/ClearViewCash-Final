@@ -35,7 +35,7 @@ export function DateGroupHeader({ label, count, totalCents, palette }: Props) {
           {label}
         </RNText>
         <RNText style={{ fontFamily: fonts.ui, fontSize: 11, color: palette.ink3 }}>
-          {count} txn
+          {count} {count === 1 ? "transaction" : "transactions"}
         </RNText>
       </View>
       <TxNum

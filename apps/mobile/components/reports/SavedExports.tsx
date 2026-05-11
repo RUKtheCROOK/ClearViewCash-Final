@@ -1,6 +1,7 @@
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { router } from "expo-router";
 import { fonts, type Palette } from "@cvc/ui";
-import { ChevRightIcon, CsvIcon, PdfIcon, ShareIcon } from "./reportGlyphs";
+import { ChevRightIcon, CsvIcon, PdfIcon, reportFromKind } from "./reportGlyphs";
 import type { SavedExport } from "./savedExportsStore";
 
 interface Props {
@@ -44,9 +45,13 @@ export function SavedExports({ palette, exports }: Props) {
             const d = new Date(e.savedAt);
             return Number.isNaN(d.getTime()) ? "" : FMT_DATE.format(d);
           })();
+          const slug = reportFromKind(e.reportKind)?.slug;
           return (
-            <View
+            <Pressable
               key={e.id}
+              onPress={slug ? () => router.push(`/reports/${slug}` as never) : undefined}
+              disabled={!slug}
+              accessibilityLabel={`Open ${e.name}`}
               style={{
                 paddingVertical: 12,
                 paddingHorizontal: 18,
@@ -84,9 +89,8 @@ export function SavedExports({ palette, exports }: Props) {
                   {when} · {e.format}
                 </Text>
               </View>
-              <ShareIcon color={palette.ink3} />
               <ChevRightIcon color={palette.ink3} />
-            </View>
+            </Pressable>
           );
         })}
       </View>

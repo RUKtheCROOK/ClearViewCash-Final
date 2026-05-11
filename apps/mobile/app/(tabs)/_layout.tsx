@@ -15,13 +15,11 @@ const TABS: TabDef[] = [
   { name: "dashboard", title: "Home", icon: "home" },
   { name: "accounts", title: "Accounts", icon: "card" },
   { name: "transactions", title: "Activity", icon: "summary" },
-  { name: "bills", title: "Bills", icon: "bill" },
-  { name: "income", title: "Income", icon: "bolt" },
-  { name: "forecast", title: "Forecast", icon: "spark" },
-  { name: "budgets", title: "Budgets", icon: "cart" },
-  { name: "goals", title: "Goals", icon: "star" },
-  { name: "reports", title: "Reports", icon: "chevR" },
+  { name: "plan", title: "Plan", icon: "brief" },
+  { name: "you", title: "You", icon: "user" },
 ];
+
+const HIDDEN_ROUTES = ["bills", "income", "forecast", "budgets", "goals", "reports"];
 
 export default function TabsLayout() {
   const { palette } = useTheme();
@@ -38,13 +36,14 @@ export default function TabsLayout() {
               backgroundColor: palette.surface,
               borderTopColor: palette.line,
               borderTopWidth: 1,
-              paddingTop: 4,
-              paddingBottom: 8,
-              height: 60,
+              paddingTop: 6,
+              paddingBottom: 10,
+              height: 68,
             },
             tabBarLabelStyle: {
-              fontSize: 10,
+              fontSize: 11.5,
               fontWeight: "500",
+              marginTop: 2,
             },
           }}
         >
@@ -56,11 +55,14 @@ export default function TabsLayout() {
                 name={name}
                 options={{
                   title,
-                  tabBarIcon: ({ color }) => <Icon color={color} size={20} />,
+                  tabBarIcon: ({ color }) => <Icon color={color} size={22} />,
                 }}
               />
             );
           })}
+          {HIDDEN_ROUTES.map((name) => (
+            <Tabs.Screen key={name} name={name} options={{ href: null }} />
+          ))}
         </Tabs>
       </View>
     </DashboardHeaderProvider>

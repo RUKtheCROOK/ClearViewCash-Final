@@ -23,6 +23,7 @@ import { useEffectiveSharedView } from "../../lib/view";
 import { useSpaces } from "../../hooks/useSpaces";
 import { BillEditSheet, type EditableBill } from "../../components/BillEditSheet";
 import { BillDetailSheet } from "../../components/BillDetailSheet";
+import { BackdatePaymentSheet } from "../../components/BackdatePaymentSheet";
 import { RecurringSuggestionsBanner } from "../../components/RecurringSuggestionsBanner";
 import { BillsCalendar, type CalendarBill } from "../../components/BillsCalendar";
 import { BillRow as BillRowView, type BillRowDataMobile } from "../../components/bills/BillRow";
@@ -101,6 +102,14 @@ export default function BillsScreen() {
   const [editing, setEditing] = useState<EditableBill | null>(null);
   const [editVisible, setEditVisible] = useState(false);
 
+  // Backdate sheet state (BL1)
+  const [backdateBill, setBackdateBill] = useState<BillRow | null>(null);
+
+  // Multi-select state (BL2)
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setOwnerUserId(data.session?.user?.id ?? null);
@@ -171,14 +180,14 @@ export default function BillsScreen() {
     };
   }
 
-  async function markPaid(b: BillRow) {
+  async function markPaid(b: BillRow, paidAt: string = today) {
     setBusy(b.id);
     setError(null);
     try {
       await recordBillPayment(supabase, {
         bill_id: b.id,
         amount: b.amount,
-        paid_at: today,
+        paid_at: paidAt,
         cadence: b.cadence,
         current_next_due_at: b.next_due_at,
       });
@@ -188,6 +197,62 @@ export default function BillsScreen() {
     } finally {
       setBusy(null);
     }
+  }
+
+  async function bulkMarkPaid(ids: string[]) {
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    setError(null);
+    try {
+      const targets = bills.filter((b) => ids.includes(b.id) && !b.latest_payment);
+      await Promise.all(
+        targets.map((b) =>
+          recordBillPayment(supabase, {
+            bill_id: b.id,
+            amount: b.amount,
+            paid_at: today,
+            cadence: b.cadence,
+            current_next_due_at: b.next_due_at,
+          }),
+        ),
+      );
+      exitSelectMode();
+      setReloadCount((c) => c + 1);
+    } catch (e) {
+      setError((e as Error).message ?? "Could not mark all paid.");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  function enterSelectMode(billId: string) {
+    setSelectMode(true);
+    setSelectedIds(new Set([billId]));
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function toggleSelected(billId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(billId)) next.delete(billId);
+      else next.add(billId);
+      if (next.size === 0) setSelectMode(false);
+      return next;
+    });
+  }
+
+  function handleRowPress(billId: string) {
+    if (selectMode) toggleSelected(billId);
+    else openDetail(billId);
+  }
+
+  function handleRowLongPress(billId: string) {
+    if (selectMode) toggleSelected(billId);
+    else enterSelectMode(billId);
   }
 
   async function unmarkPaid(b: BillRow) {
@@ -251,27 +316,45 @@ export default function BillsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.canvas }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: selectMode ? 96 : 80 }}>
         {/* Header */}
         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>
           <View style={{ flex: 1 }}>
             <Text style={{ fontFamily: fonts.uiMedium, fontSize: 28, fontWeight: "500", letterSpacing: -0.6, color: palette.ink1 }}>
-              Bills
+              {selectMode ? `${selectedIds.size} selected` : "Bills"}
             </Text>
           </View>
-          <Pressable
-            onPress={openCreate}
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 999,
-              backgroundColor: palette.brand,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Svg width={18} height={18} viewBox="0 0 24 24"><Path d="M12 5v14M5 12h14" fill="none" stroke={palette.brandOn} strokeWidth={2.2} strokeLinecap="round" /></Svg>
-          </Pressable>
+          {selectMode ? (
+            <Pressable
+              onPress={exitSelectMode}
+              style={({ pressed }) => ({
+                paddingHorizontal: 14,
+                height: 38,
+                borderRadius: 999,
+                backgroundColor: palette.tinted,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink1 }}>Cancel</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={openCreate}
+              style={({ pressed }) => ({
+                width: 38,
+                height: 38,
+                borderRadius: 999,
+                backgroundColor: palette.brand,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Svg width={18} height={18} viewBox="0 0 24 24"><Path d="M12 5v14M5 12h14" fill="none" stroke={palette.brandOn} strokeWidth={2.2} strokeLinecap="round" /></Svg>
+            </Pressable>
+          )}
         </View>
 
         {/* View toggle + search */}
@@ -357,6 +440,7 @@ export default function BillsScreen() {
                 mode={mode}
                 onPress={openDetail}
                 onMarkPaid={markPaid}
+                onLongPressMarkPaid={(b) => setBackdateBill(b)}
                 onUnmarkPaid={unmarkPaid}
                 busy={busy}
                 billToRowData={billToRowData}
@@ -399,10 +483,14 @@ export default function BillsScreen() {
                       accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
                       palette={palette}
                       mode={mode}
-                      onPress={() => openDetail(b.id)}
+                      onPress={() => handleRowPress(b.id)}
+                      onLongPress={() => handleRowLongPress(b.id)}
                       onMarkPaid={() => markPaid(b)}
+                      onLongPressMarkPaid={() => setBackdateBill(b)}
                       onUnmarkPaid={() => unmarkPaid(b)}
                       paying={busy === b.id}
+                      selectMode={selectMode}
+                      selected={selectedIds.has(b.id)}
                     />
                   );
                 })
@@ -445,10 +533,14 @@ export default function BillsScreen() {
                       accountLabel={accountLabel(accounts, (b as unknown as { linked_account_id: string | null }).linked_account_id)}
                       palette={palette}
                       mode={mode}
-                      onPress={() => openDetail(b.id)}
+                      onPress={() => handleRowPress(b.id)}
+                      onLongPress={() => handleRowLongPress(b.id)}
                       onMarkPaid={() => markPaid(b)}
+                      onLongPressMarkPaid={() => setBackdateBill(b)}
                       onUnmarkPaid={() => unmarkPaid(b)}
                       paying={busy === b.id}
+                      selectMode={selectMode}
+                      selected={selectedIds.has(b.id)}
                     />
                   ))}
                 </Section>
@@ -467,6 +559,10 @@ export default function BillsScreen() {
           const b = bills.find((x) => x.id === detailId);
           if (b) openEdit(b);
         }}
+        onLongPressMarkPaid={() => {
+          const b = bills.find((x) => x.id === detailId);
+          if (b) setBackdateBill(b);
+        }}
       />
 
       <BillEditSheet
@@ -480,6 +576,51 @@ export default function BillsScreen() {
           setEditVisible(false);
         }}
       />
+
+      <BackdatePaymentSheet
+        visible={!!backdateBill}
+        billName={backdateBill?.name ?? null}
+        onClose={() => setBackdateBill(null)}
+        onConfirm={(iso) => {
+          const b = backdateBill;
+          setBackdateBill(null);
+          if (b) markPaid(b, iso);
+        }}
+      />
+
+      {selectMode ? (
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingHorizontal: 16,
+            paddingTop: 10,
+            paddingBottom: 24,
+            backgroundColor: palette.canvas,
+            borderTopWidth: 1,
+            borderTopColor: palette.line,
+          }}
+        >
+          <Pressable
+            disabled={selectedIds.size === 0 || bulkBusy}
+            onPress={() => bulkMarkPaid(Array.from(selectedIds))}
+            style={({ pressed }) => ({
+              height: 50,
+              borderRadius: 12,
+              backgroundColor: palette.brand,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: selectedIds.size === 0 || bulkBusy ? 0.5 : pressed ? 0.85 : 1,
+            })}
+          >
+            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14.5, fontWeight: "500", color: palette.brandOn }}>
+              {bulkBusy ? "Saving…" : `Mark ${selectedIds.size} paid`}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -526,6 +667,7 @@ function DayPanel({
   mode,
   onPress,
   onMarkPaid,
+  onLongPressMarkPaid,
   onUnmarkPaid,
   busy,
   billToRowData,
@@ -538,6 +680,7 @@ function DayPanel({
   mode: "light" | "dark";
   onPress: (id: string) => void;
   onMarkPaid: (b: BillRow) => void;
+  onLongPressMarkPaid?: (b: BillRow) => void;
   onUnmarkPaid: (b: BillRow) => void;
   busy: string | null;
   billToRowData: (b: BillRow) => BillRowDataMobile;
@@ -580,6 +723,7 @@ function DayPanel({
               mode={mode}
               onPress={() => onPress(b.id)}
               onMarkPaid={() => onMarkPaid(b)}
+              onLongPressMarkPaid={onLongPressMarkPaid ? () => onLongPressMarkPaid(b) : undefined}
               onUnmarkPaid={() => onUnmarkPaid(b)}
               paying={busy === b.id}
             />

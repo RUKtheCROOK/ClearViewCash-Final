@@ -62,7 +62,7 @@ export function PaycheckCycleSummary({
             gap: 8,
           }}
         >
-          <Text style={{ fontFamily: fonts.num, fontSize: 10.5, color: palette.ink3, letterSpacing: 1 }}>
+          <Text style={{ fontFamily: fonts.num, fontSize: 11, color: palette.ink3, letterSpacing: 1 }}>
             REMAINING THIS CYCLE
           </Text>
           {overdue ? (
@@ -74,7 +74,7 @@ export function PaycheckCycleSummary({
                 backgroundColor: palette.warnTint,
               }}
             >
-              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 10.5, fontWeight: "600", color: palette.warn }}>
+              <Text style={{ fontFamily: fonts.uiMedium, fontSize: 11, fontWeight: "600", color: palette.warn }}>
                 Overdue by {Math.abs(daysUntilNext)}d
               </Text>
             </View>
@@ -155,7 +155,7 @@ function Stat({
   const valColor = warn ? palette.warn : palette.ink1;
   return (
     <View style={{ flex: 1 }}>
-      <Text style={{ fontFamily: fonts.num, fontSize: 9.5, color: palette.ink3, letterSpacing: 0.8, fontWeight: "600" }}>
+      <Text style={{ fontFamily: fonts.num, fontSize: 11, color: palette.ink3, letterSpacing: 0.8, fontWeight: "600" }}>
         {label}
       </Text>
       <View style={{ marginTop: 4, flexDirection: "row", alignItems: "baseline", gap: 4 }}>
@@ -205,7 +205,7 @@ export function PaycheckCycleEmpty({ palette, reason, onAddIncome }: EmptyProps)
               backgroundColor: palette.brand,
             }}
           >
-            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12.5, fontWeight: "600", color: palette.brandOn }}>
+            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "600", color: palette.brandOn }}>
               Open Income
             </Text>
           </Pressable>

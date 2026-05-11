@@ -26,11 +26,14 @@ interface Props {
   accountOpts: AccountOpt[];
   accountIds: Set<string>;
   toggleAccount: (id: string) => void;
+  clearAccounts: () => void;
   categoryKinds: Set<string>;
   toggleCategoryKind: (k: string) => void;
+  clearCategoryKinds: () => void;
   memberOpts: MemberOpt[];
   ownerUserIds: Set<string>;
   toggleOwner: (id: string) => void;
+  clearOwners: () => void;
   showPersonGroup: boolean;
   dateRange: DateRangeKey;
   setDateRange: (k: DateRangeKey) => void;
@@ -43,9 +46,15 @@ interface Props {
 
 export function ExpandedFilters(props: Props) {
   const { palette } = props;
+  const amountSelected = props.amountRange.min !== null || props.amountRange.max !== null;
   return (
     <View style={{ padding: 16, backgroundColor: palette.surface, borderTopWidth: 1, borderTopColor: palette.line }}>
-      <FilterGroup palette={palette} label="Status">
+      <FilterGroup
+        palette={palette}
+        label="Status"
+        canClear={props.status !== "all"}
+        onClear={() => props.setStatus("all")}
+      >
         <Seg
           palette={palette}
           options={[
@@ -58,7 +67,12 @@ export function ExpandedFilters(props: Props) {
         />
       </FilterGroup>
 
-      <FilterGroup palette={palette} label="Account">
+      <FilterGroup
+        palette={palette}
+        label="Account"
+        canClear={props.accountIds.size > 0}
+        onClear={props.clearAccounts}
+      >
         <ChipRow>
           {props.accountOpts.length === 0 ? (
             <RNText style={{ fontFamily: fonts.ui, fontSize: 12.5, color: palette.ink3 }}>
@@ -78,7 +92,12 @@ export function ExpandedFilters(props: Props) {
         </ChipRow>
       </FilterGroup>
 
-      <FilterGroup palette={palette} label="Category">
+      <FilterGroup
+        palette={palette}
+        label="Category"
+        canClear={props.categoryKinds.size > 0}
+        onClear={props.clearCategoryKinds}
+      >
         <ChipRow>
           {TX_CATEGORY_KINDS.map((kind) => (
             <CategoryChoiceChip
@@ -95,7 +114,12 @@ export function ExpandedFilters(props: Props) {
       </FilterGroup>
 
       {props.showPersonGroup && props.memberOpts.length > 0 ? (
-        <FilterGroup palette={palette} label="Person">
+        <FilterGroup
+          palette={palette}
+          label="Person"
+          canClear={props.ownerUserIds.size > 0}
+          onClear={props.clearOwners}
+        >
           <ChipRow>
             {props.memberOpts.map((m) => (
               <PersonChip
@@ -113,7 +137,12 @@ export function ExpandedFilters(props: Props) {
         </FilterGroup>
       ) : null}
 
-      <FilterGroup palette={palette} label="Date range">
+      <FilterGroup
+        palette={palette}
+        label="Date range"
+        canClear={props.dateRange !== "30d"}
+        onClear={() => props.setDateRange("30d")}
+      >
         <ChipRow>
           {(
             [
@@ -134,7 +163,12 @@ export function ExpandedFilters(props: Props) {
         </ChipRow>
       </FilterGroup>
 
-      <FilterGroup palette={palette} label="Amount range">
+      <FilterGroup
+        palette={palette}
+        label="Amount range"
+        canClear={amountSelected}
+        onClear={() => props.setAmountRange({ min: null, max: null })}
+      >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <AmountInput
             palette={palette}
@@ -165,7 +199,7 @@ export function ExpandedFilters(props: Props) {
           }}
         >
           <RNText style={{ color: palette.brandOn, fontFamily: fonts.uiMedium, fontWeight: "500", fontSize: 13 }}>
-            Apply · {props.totalMatches} {props.totalMatches === 1 ? "result" : "results"}
+            Show {props.totalMatches} {props.totalMatches === 1 ? "result" : "results"}
           </RNText>
         </Pressable>
         <Pressable
@@ -181,7 +215,7 @@ export function ExpandedFilters(props: Props) {
           }}
         >
           <RNText style={{ color: palette.ink1, fontFamily: fonts.uiMedium, fontWeight: "500", fontSize: 13 }}>
-            Reset
+            Reset all
           </RNText>
         </Pressable>
       </View>
@@ -193,26 +227,52 @@ function FilterGroup({
   palette,
   label,
   children,
+  canClear,
+  onClear,
 }: {
   palette: Palette;
   label: string;
   children: React.ReactNode;
+  canClear?: boolean;
+  onClear?: () => void;
 }) {
   return (
     <View style={{ marginBottom: 14 }}>
-      <RNText
+      <View
         style={{
-          fontFamily: fonts.uiSemibold,
-          fontSize: 11,
-          fontWeight: "600",
-          color: palette.ink2,
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
           marginBottom: 8,
         }}
       >
-        {label}
-      </RNText>
+        <RNText
+          style={{
+            fontFamily: fonts.uiSemibold,
+            fontSize: 11,
+            fontWeight: "600",
+            color: palette.ink2,
+            textTransform: "uppercase",
+            letterSpacing: 0.8,
+          }}
+        >
+          {label}
+        </RNText>
+        {canClear && onClear ? (
+          <Pressable onPress={onClear} hitSlop={8}>
+            <RNText
+              style={{
+                fontFamily: fonts.uiMedium,
+                fontSize: 11,
+                fontWeight: "500",
+                color: palette.ink3,
+              }}
+            >
+              Clear
+            </RNText>
+          </Pressable>
+        ) : null}
+      </View>
       {children}
     </View>
   );

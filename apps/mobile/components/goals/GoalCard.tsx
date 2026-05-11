@@ -6,7 +6,7 @@ import { GoalIcon } from "./GoalIcon";
 import type { GoalGlyphKey } from "./goalGlyphs";
 import { Num, fmtMoneyShort } from "./Num";
 import { GoalProgressBar } from "./ProgressArc";
-import { StatusPill, type GoalStatus, projectionLabel } from "./StatusPill";
+import { StatusPill, type GoalStatus, projectionLabel, statusTone } from "./StatusPill";
 
 export interface GoalCardData {
   id: string;
@@ -45,10 +45,9 @@ export function GoalCard({ palette, mode, goal, onPress }: Props) {
   const dateLabel = formatTargetDate(goal.targetDate);
   const projection = projectionLabel(goal.status, goal.monthsLeft, goal.targetDate);
 
-  const arcColor =
-    goal.status === "behind" ? palette.accent : goal.status === "ahead" ? palette.pos : palette.brand;
-  const projectionColor =
-    goal.status === "ahead" ? palette.pos : goal.status === "behind" ? palette.accent : palette.brand;
+  const tone = statusTone(palette, goal.status);
+  const arcColor = tone.fg;
+  const projectionColor = tone.fg;
 
   return (
     <Pressable
@@ -56,7 +55,7 @@ export function GoalCard({ palette, mode, goal, onPress }: Props) {
       android_ripple={{ color: palette.tinted }}
       style={({ pressed }) => ({
         padding: 16,
-        borderRadius: 16,
+        borderRadius: 14,
         backgroundColor: palette.surface,
         borderWidth: 1,
         borderColor: palette.line,
@@ -139,20 +138,29 @@ export function GoalCard({ palette, mode, goal, onPress }: Props) {
               strokeLinejoin="round"
             />
           </Svg>
-          <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>
+          <Text style={{ fontFamily: fonts.ui, fontSize: 11, color: palette.ink4 }}>
             {dateLabel ? `by ${dateLabel}` : "no target date"}
           </Text>
-          <Text
+          <View
             style={{
               marginLeft: "auto",
-              fontFamily: fonts.uiMedium,
-              fontSize: 11.5,
-              color: projectionColor,
-              fontWeight: "500",
+              paddingHorizontal: 8,
+              paddingVertical: 2,
+              borderRadius: 999,
+              backgroundColor: tone.bg,
             }}
           >
-            {projection}
-          </Text>
+            <Text
+              style={{
+                fontFamily: fonts.uiMedium,
+                fontSize: 11.5,
+                color: projectionColor,
+                fontWeight: "600",
+              }}
+            >
+              {projection}
+            </Text>
+          </View>
         </View>
       </View>
     </Pressable>

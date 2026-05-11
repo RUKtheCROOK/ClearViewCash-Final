@@ -1,8 +1,9 @@
 import { Pressable, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { fonts, type Palette } from "@cvc/ui";
-import { Num, fmtMoneyShort } from "./Num";
+import { Num, fmtMoneyAbbrev } from "./Num";
 import { categoryColor } from "./categoryHues";
+import { EmptyChart } from "./ChartStates";
 
 export interface DonutSlice {
   id: string;
@@ -24,11 +25,7 @@ interface Props {
 export function DonutChart({ palette, mode, slices, totalLabel, centerSub, focusedId, onFocus }: Props) {
   const total = slices.reduce((a, s) => a + s.value, 0);
   if (slices.length === 0 || total === 0) {
-    return (
-      <View style={{ height: 220, alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink3 }}>No data in this range</Text>
-      </View>
-    );
+    return <EmptyChart palette={palette} label="No data in this range" height={220} />;
   }
   const cx = 110;
   const cy = 110;
@@ -126,7 +123,7 @@ export function DonutCallouts({
               </Text>
             </View>
             <Num style={{ marginTop: 6, fontSize: 14, fontWeight: "600", color: palette.ink1 }}>
-              {fmtMoneyShort(c.value)}
+              {fmtMoneyAbbrev(c.value)}
             </Num>
             <Text style={{ fontFamily: fonts.num, fontSize: 10, color: palette.ink3, marginTop: 2 }}>
               {pct}% of total

@@ -1,7 +1,8 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import Svg, { G, Path, Rect } from "react-native-svg";
-import { fonts, type Palette } from "@cvc/ui";
+import { type Palette } from "@cvc/ui";
 import { categoryColor } from "./categoryHues";
+import { EmptyChart } from "./ChartStates";
 
 interface CashflowMiniProps {
   buckets: { cashIn: number; cashOut: number }[];
@@ -16,7 +17,7 @@ export function CashflowMini({ buckets, palette }: CashflowMiniProps) {
   const max = Math.max(1, ...safe.map((d) => Math.max(d.cashIn, d.cashOut)));
   const bw = W / safe.length;
   if (max === 1 && safe.every((b) => b.cashIn === 0 && b.cashOut === 0)) {
-    return <EmptyChartBox label="No flow yet" palette={palette} />;
+    return <EmptyChart palette={palette} label="No flow yet" />;
   }
   return (
     <Svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
@@ -59,7 +60,7 @@ interface DonutMiniProps {
 
 export function DonutMini({ slices, palette, mode }: DonutMiniProps) {
   const safe = slices.filter((s) => s.value > 0);
-  if (safe.length === 0) return <EmptyChartBox label="No spend yet" palette={palette} />;
+  if (safe.length === 0) return <EmptyChart palette={palette} label="No spend yet" />;
   const total = safe.reduce((a, s) => a + s.value, 0);
   const cx = 40;
   const cy = 40;
@@ -98,7 +99,7 @@ interface NetWorthSparkProps {
 }
 
 export function NetWorthSpark({ series, palette, color }: NetWorthSparkProps) {
-  if (series.length < 2) return <EmptyChartBox label="No history yet" palette={palette} />;
+  if (series.length < 2) return <EmptyChart palette={palette} label="No history yet" />;
   const W = 140;
   const H = 80;
   const max = Math.max(1, ...series.map((v) => Math.abs(v)));
@@ -115,18 +116,3 @@ export function NetWorthSpark({ series, palette, color }: NetWorthSparkProps) {
   );
 }
 
-function EmptyChartBox({ label, palette }: { label: string; palette: Palette }) {
-  return (
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: palette.tinted,
-        borderRadius: 8,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Text style={{ fontFamily: fonts.ui, fontSize: 10.5, color: palette.ink3 }}>{label}</Text>
-    </View>
-  );
-}

@@ -42,7 +42,27 @@ export function AccountsTitleBlock({ spaceTintHex, summary, onLinkAccount, onAdd
         >
           Accounts
         </Text>
-        <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          <Pressable
+            onPress={onLinkAccount}
+            style={{
+              height: 36,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              backgroundColor: palette.surface,
+              borderColor: palette.line,
+              borderWidth: 1,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+            }}
+            accessibilityLabel="Pay a card from a cash account"
+          >
+            <I.link color={palette.ink1} size={14} />
+            <Text style={{ color: palette.ink1, fontWeight: "500", fontSize: 13 }}>
+              Pay a card
+            </Text>
+          </Pressable>
           <Pressable
             onPress={onAddBank}
             hitSlop={6}
@@ -50,32 +70,13 @@ export function AccountsTitleBlock({ spaceTintHex, summary, onLinkAccount, onAdd
               width: 36,
               height: 36,
               borderRadius: 999,
-              backgroundColor: palette.surface,
-              borderColor: palette.line,
-              borderWidth: 1,
+              backgroundColor: palette.brand,
               alignItems: "center",
               justifyContent: "center",
             }}
-            accessibilityLabel="Add a bank"
+            accessibilityLabel="Add a bank account"
           >
-            <I.plus color={palette.ink1} size={16} />
-          </Pressable>
-          <Pressable
-            onPress={onLinkAccount}
-            style={{
-              height: 36,
-              paddingHorizontal: 14,
-              borderRadius: 999,
-              backgroundColor: palette.brand,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <I.link color={palette.brandOn} size={14} />
-            <Text style={{ color: palette.brandOn, fontWeight: "500", fontSize: 13 }}>
-              Link account
-            </Text>
+            <I.plus color={palette.brandOn} size={16} />
           </Pressable>
         </View>
       </View>

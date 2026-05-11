@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text as RNText, TextInput, View } from "react-native";
-import { I, fonts } from "@cvc/ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  SectionList,
+  type SectionListData,
+  Text as RNText,
+  TextInput,
+  View,
+} from "react-native";
+import { router } from "expo-router";
+import { I, TxNum, fonts } from "@cvc/ui";
 import {
   getAccountsForView,
   getMembersWithProfilesForSpace,
@@ -29,6 +39,7 @@ import { TransactionDetailSheet } from "../../components/TransactionDetailSheet"
 import { TransactionLongPressMenu } from "../../components/TransactionLongPressMenu";
 import { TransactionSplitEditor } from "../../components/TransactionSplitEditor";
 import { TransactionsChartSection } from "../../components/TransactionsChartSection";
+import { AddTransactionSheet } from "../../components/AddTransactionSheet";
 import type {
   AccountOpt,
   ActivityTxn,
@@ -40,6 +51,8 @@ import type {
 
 export default function Transactions() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
+  const addTransactionPending = useApp((s) => s.addTransactionPending);
+  const requestAddTransaction = useApp((s) => s.requestAddTransaction);
   const { activeSpace } = useSpaces();
   const { sharedView, restrictToOwnerId, toggleVisible } = useEffectiveSharedView(activeSpace);
   const { tier } = useTier();
@@ -64,6 +77,19 @@ export default function Transactions() {
   const [splitTxnIds, setSplitTxnIds] = useState<Set<string>>(new Set());
   const [reloadCount, setReloadCount] = useState(0);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [chartCollapsed, setChartCollapsed] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+
+  // Cross-screen entry — e.g. tapping QuickActions → "Add transaction" sets
+  // this flag in the store, navigates here, and we honor it on mount.
+  useEffect(() => {
+    if (addTransactionPending) {
+      setAddOpen(true);
+      requestAddTransaction(false);
+    }
+  }, [addTransactionPending, requestAddTransaction]);
 
   useEffect(() => {
     if (!activeSpaceId) return;
@@ -82,8 +108,18 @@ export default function Transactions() {
       limit: 200,
       accountIds: accountIds.size ? Array.from(accountIds) : undefined,
       ownerUserIds: ownerUserIds.size ? Array.from(ownerUserIds) : undefined,
-    }).then((data) => setTxns(data as unknown as ActivityTxn[]));
+    })
+      .then((data) => setTxns(data as unknown as ActivityTxn[]))
+      .finally(() => {
+        setIsLoading(false);
+        setRefreshing(false);
+      });
   }, [activeSpaceId, sharedView, restrictToOwnerId, accountIds, ownerUserIds, reloadCount]);
+
+  function onRefresh() {
+    setRefreshing(true);
+    setReloadCount((c) => c + 1);
+  }
 
   useEffect(() => {
     getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView, restrictToOwnerId }).then(
@@ -187,6 +223,25 @@ export default function Transactions() {
     (dateRange !== "30d" ? 1 : 0) +
     (amountRange.min !== null || amountRange.max !== null ? 1 : 0);
 
+  const stats = useMemo(() => {
+    let cleared = 0;
+    let pending = 0;
+    for (const t of filtered) {
+      if (t.pending) pending += t.amount;
+      else cleared += t.amount;
+    }
+    return { cleared, pending };
+  }, [filtered]);
+
+  const dateScopeLabel =
+    dateRange === "7d"
+      ? "Last 7 days"
+      : dateRange === "30d"
+        ? "Last 30 days"
+        : dateRange === "month"
+          ? "This month"
+          : "All time";
+
   const railChips: RailChip[] = [
     {
       key: "all",
@@ -208,8 +263,9 @@ export default function Transactions() {
       onPress: () => setRecurringOnly((v) => !v),
     },
     {
-      key: "more",
-      label: expanded ? "Hide filters" : "More",
+      key: "filters",
+      label: "Filters",
+      count: activeFilterCount,
       hasIcon: true,
       active: expanded,
       onPress: () => setExpanded((v) => !v),
@@ -295,42 +351,130 @@ export default function Transactions() {
     setSplitFor(t);
   }
 
-  return (
-    <ScrollView
-      style={{ backgroundColor: palette.canvas }}
-      contentContainerStyle={{ paddingBottom: 80 }}
-      stickyHeaderIndices={[0]}
-    >
-      {/* Sticky header: title, search, chip rail */}
+  const viewInfoLine = !toggleVisible
+    ? "Showing every transaction on accounts you own."
+    : sharedView
+      ? "Shared view — visible in this space."
+      : "My view — your contributions to this space.";
+
+  const sectionData = useMemo<Array<SectionListData<ActivityTxn, GroupSection>>>(
+    () =>
+      groups.map((g) => ({
+        key: g.key,
+        label: g.label,
+        count: g.count,
+        totalCents: g.totalCents,
+        data: g.txns,
+      })),
+    [groups],
+  );
+
+  const keyExtractor = useCallback((item: ActivityTxn) => item.id, []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: ActivityTxn }) => (
+      <TxRow
+        tx={item}
+        palette={palette}
+        mode={mode}
+        accountName={accountNameById.get(item.account_id) ?? null}
+        sharedInitial={sharedView ? memberInitialById.get(item.owner_user_id) ?? null : null}
+        splitFlag={splitTxnIds.has(item.id)}
+        onTap={() => setEditing(item)}
+        onLongPress={() => setLongPressing(item)}
+      />
+    ),
+    [palette, mode, accountNameById, sharedView, memberInitialById, splitTxnIds],
+  );
+
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: SectionListData<ActivityTxn, GroupSection> }) => (
+      <DateGroupHeader
+        palette={palette}
+        label={section.label}
+        count={section.count}
+        totalCents={section.totalCents}
+      />
+    ),
+    [palette],
+  );
+
+  const ListHeader = (
+    <View>
       <View style={{ backgroundColor: palette.canvas, borderBottomColor: palette.line, borderBottomWidth: 1 }}>
-        <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
-          <RNText
-            style={{
-              fontFamily: fonts.uiMedium,
-              fontSize: 28,
-              fontWeight: "500",
-              letterSpacing: -0.6,
-              color: palette.ink1,
-            }}
-          >
-            Activity
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10, flex: 1 }}>
+              <RNText
+                style={{
+                  fontFamily: fonts.uiMedium,
+                  fontSize: 18,
+                  fontWeight: "500",
+                  letterSpacing: -0.2,
+                  color: palette.ink1,
+                }}
+              >
+                Activity
+              </RNText>
+              <RNText style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
+                {dateScopeLabel}
+              </RNText>
+            </View>
+            <Pressable
+              onPress={() => setAddOpen(true)}
+              hitSlop={8}
+              accessibilityLabel="Add transaction"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 999,
+                backgroundColor: palette.ink1,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <I.plus color={palette.canvas} size={16} />
+            </Pressable>
+          </View>
+
+          {filtered.length > 0 ? (
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, flexWrap: "wrap", rowGap: 2 }}>
+              <RNText style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>Cleared </RNText>
+              <TxNum
+                cents={stats.cleared}
+                showSign
+                signNegative="−$"
+                signPositive="+$"
+                fontSize={12}
+                fontWeight="500"
+                color={palette.ink2}
+                centsColor={palette.ink3}
+              />
+              {stats.pending !== 0 ? (
+                <>
+                  <View style={{ width: 3, height: 3, borderRadius: 999, backgroundColor: palette.ink4, marginHorizontal: 8 }} />
+                  <RNText style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>Pending </RNText>
+                  <TxNum
+                    cents={stats.pending}
+                    showSign
+                    signNegative="−$"
+                    signPositive="+$"
+                    fontSize={12}
+                    fontWeight="500"
+                    color={palette.ink2}
+                    centsColor={palette.ink3}
+                  />
+                </>
+              ) : null}
+            </View>
+          ) : null}
+
+          <RNText style={{ marginTop: 4, fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink3 }}>
+            {viewInfoLine}
           </RNText>
-          {!toggleVisible ? (
-            <RNText style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
-              Showing every transaction on accounts you own.
-            </RNText>
-          ) : sharedView ? (
-            <RNText style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
-              Shared view — visible in this space.
-            </RNText>
-          ) : (
-            <RNText style={{ marginTop: 2, fontFamily: fonts.ui, fontSize: 12, color: palette.ink3 }}>
-              My view — your contributions to this space.
-            </RNText>
-          )}
         </View>
 
-        <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 8 }}>
           <View
             style={{
               flexDirection: "row",
@@ -356,6 +500,16 @@ export default function Transactions() {
                 padding: 0,
               }}
             />
+            {search.length > 0 ? (
+              <Pressable
+                onPress={() => setSearch("")}
+                hitSlop={8}
+                accessibilityLabel="Clear search"
+                style={{ width: 18, height: 18, alignItems: "center", justifyContent: "center" }}
+              >
+                <I.close color={palette.ink3} size={14} />
+              </Pressable>
+            ) : null}
           </View>
         </View>
 
@@ -370,11 +524,14 @@ export default function Transactions() {
             accountOpts={accountOpts}
             accountIds={accountIds}
             toggleAccount={(id) => setAccountIds((s) => toggleInSet(s, id))}
+            clearAccounts={() => setAccountIds(new Set())}
             categoryKinds={categoryKinds}
             toggleCategoryKind={(k) => setCategoryKinds((s) => toggleInSet(s, k))}
+            clearCategoryKinds={() => setCategoryKinds(new Set())}
             memberOpts={memberOpts}
             ownerUserIds={ownerUserIds}
             toggleOwner={(id) => setOwnerUserIds((s) => toggleInSet(s, id))}
+            clearOwners={() => setOwnerUserIds(new Set())}
             showPersonGroup={sharedView}
             dateRange={dateRange}
             setDateRange={setDateRange}
@@ -388,44 +545,190 @@ export default function Transactions() {
       </View>
 
       {tier !== "starter" && filtered.length > 0 ? (
-        <View style={{ padding: 16 }}>
-          <TransactionsChartSection txns={filtered} />
+        <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: chartCollapsed ? 4 : 16 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: chartCollapsed ? 0 : 10,
+            }}
+          >
+            <RNText
+              style={{
+                fontFamily: fonts.uiSemibold,
+                fontSize: 11,
+                fontWeight: "600",
+                color: palette.ink2,
+                textTransform: "uppercase",
+                letterSpacing: 0.8,
+              }}
+            >
+              30-day overview
+            </RNText>
+            <Pressable
+              onPress={() => setChartCollapsed((v) => !v)}
+              hitSlop={8}
+              accessibilityLabel={chartCollapsed ? "Show chart" : "Hide chart"}
+            >
+              <RNText style={{ fontFamily: fonts.uiMedium, fontSize: 11, fontWeight: "500", color: palette.ink3 }}>
+                {chartCollapsed ? "Show" : "Hide"}
+              </RNText>
+            </Pressable>
+          </View>
+          {!chartCollapsed ? <TransactionsChartSection txns={filtered} /> : null}
         </View>
       ) : null}
+    </View>
+  );
 
-      {groups.length === 0 ? (
-        <View style={{ padding: 32, alignItems: "center" }}>
-          <RNText style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink3, textAlign: "center" }}>
-            {sharedView
-              ? "Nothing shared into this space matches your filters."
-              : "No transactions match your filters."}
+  const ListEmpty = isLoading ? (
+    <View style={{ padding: 32, alignItems: "center" }}>
+      <ActivityIndicator color={palette.ink3} />
+      <RNText style={{ marginTop: 12, fontFamily: fonts.ui, fontSize: 13, color: palette.ink3 }}>
+        Loading transactions…
+      </RNText>
+    </View>
+  ) : txns.length === 0 ? (
+    <View style={{ padding: 32, alignItems: "center" }}>
+      <RNText
+        style={{
+          fontFamily: fonts.uiMedium,
+          fontSize: 15,
+          fontWeight: "500",
+          color: palette.ink1,
+          textAlign: "center",
+          marginBottom: 6,
+        }}
+      >
+        No transactions yet
+      </RNText>
+      <RNText
+        style={{
+          fontFamily: fonts.ui,
+          fontSize: 13,
+          color: palette.ink3,
+          textAlign: "center",
+          maxWidth: 280,
+        }}
+      >
+        {accountOpts.length === 0
+          ? "Link a bank to start seeing your transactions here, or add one manually."
+          : "They'll show up here as soon as your linked accounts sync."}
+      </RNText>
+      <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+        {accountOpts.length === 0 ? (
+          <Pressable
+            onPress={() => router.push("/(onboarding)/link-bank")}
+            style={{
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              borderRadius: 10,
+              backgroundColor: palette.brand,
+            }}
+          >
+            <RNText style={{ color: palette.brandOn, fontFamily: fonts.uiMedium, fontWeight: "500", fontSize: 13 }}>
+              Link a bank
+            </RNText>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={() => setAddOpen(true)}
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: palette.lineFirm,
+          }}
+        >
+          <RNText style={{ color: palette.ink1, fontFamily: fonts.uiMedium, fontWeight: "500", fontSize: 13 }}>
+            Add manually
           </RNText>
-        </View>
-      ) : (
-        groups.map((group) => (
-          <View key={group.key}>
-            <DateGroupHeader
-              palette={palette}
-              label={group.label}
-              count={group.count}
-              totalCents={group.totalCents}
-            />
-            {group.txns.map((t) => (
-              <TxRow
-                key={t.id}
-                tx={t}
-                palette={palette}
-                mode={mode}
-                accountName={accountNameById.get(t.account_id) ?? null}
-                sharedInitial={sharedView ? memberInitialById.get(t.owner_user_id) ?? null : null}
-                splitFlag={splitTxnIds.has(t.id)}
-                onTap={() => setEditing(t)}
-                onLongPress={() => setLongPressing(t)}
-              />
-            ))}
-          </View>
-        ))
-      )}
+        </Pressable>
+      </View>
+    </View>
+  ) : (
+    <View style={{ padding: 32, alignItems: "center" }}>
+      <RNText
+        style={{
+          fontFamily: fonts.uiMedium,
+          fontSize: 15,
+          fontWeight: "500",
+          color: palette.ink1,
+          textAlign: "center",
+          marginBottom: 6,
+        }}
+      >
+        No matches
+      </RNText>
+      <RNText
+        style={{
+          fontFamily: fonts.ui,
+          fontSize: 13,
+          color: palette.ink3,
+          textAlign: "center",
+          maxWidth: 280,
+        }}
+      >
+        {sharedView
+          ? "Nothing shared into this space matches your filters."
+          : "Try adjusting your filters to see more."}
+      </RNText>
+      <Pressable
+        onPress={resetAll}
+        style={{
+          marginTop: 14,
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: palette.lineFirm,
+        }}
+      >
+        <RNText style={{ color: palette.ink1, fontFamily: fonts.uiMedium, fontWeight: "500", fontSize: 13 }}>
+          Reset filters
+        </RNText>
+      </Pressable>
+    </View>
+  );
+
+  const ListFooter =
+    txns.length >= 200 && groups.length > 0 ? (
+      <View style={{ paddingHorizontal: 16, paddingVertical: 18, alignItems: "center" }}>
+        <RNText
+          style={{
+            fontFamily: fonts.ui,
+            fontSize: 11.5,
+            color: palette.ink3,
+            textAlign: "center",
+          }}
+        >
+          Showing your most recent 200 transactions.
+        </RNText>
+      </View>
+    ) : null;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: palette.canvas }}>
+      <SectionList
+        sections={sectionData}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        renderSectionHeader={renderSectionHeader}
+        ListHeaderComponent={ListHeader}
+        ListEmptyComponent={ListEmpty}
+        ListFooterComponent={ListFooter}
+        stickySectionHeadersEnabled={false}
+        contentContainerStyle={{ paddingBottom: 80 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={palette.ink3}
+          />
+        }
+      />
 
       <TransactionDetailSheet
         txn={editing}
@@ -466,8 +769,26 @@ export default function Transactions() {
         onClose={() => setSplitFor(null)}
         onSaved={() => setReloadCount((c) => c + 1)}
       />
-    </ScrollView>
+
+      <AddTransactionSheet
+        visible={addOpen}
+        palette={palette}
+        mode={mode}
+        accountOpts={accountOpts}
+        defaultAccountId={accountOpts[0]?.id ?? null}
+        categorySuggestions={categorySuggestions}
+        onClose={() => setAddOpen(false)}
+        onSaved={() => setReloadCount((c) => c + 1)}
+      />
+    </View>
   );
+}
+
+interface GroupSection {
+  key: string;
+  label: string;
+  count: number;
+  totalCents: number;
 }
 
 interface FilterArgs {

@@ -23,6 +23,17 @@ import {
 import { supabase } from "../../../lib/supabase";
 import { openPlaidLink } from "../../../lib/plaid";
 
+const COLOR_SWATCHES: Array<{ hex: string; label: string }> = [
+  { hex: "#3c8f8f", label: "Teal" },
+  { hex: "#428ba1", label: "Sea" },
+  { hex: "#6d7eb1", label: "Indigo" },
+  { hex: "#618d62", label: "Sage" },
+  { hex: "#9c7947", label: "Gold" },
+  { hex: "#ab6e64", label: "Clay" },
+  { hex: "#a96c7a", label: "Rose" },
+  { hex: "#96719e", label: "Plum" },
+];
+
 interface AccountDetail {
   id: string;
   name: string;
@@ -69,6 +80,7 @@ export default function AccountDetail() {
   const [nameInput, setNameInput] = useState("");
   const [colorInput, setColorInput] = useState("");
   const [iconInput, setIconInput] = useState<string | null>(null);
+  const [colorOtherOpen, setColorOtherOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -322,8 +334,68 @@ export default function AccountDetail() {
             }}
           />
 
-          <Text variant="label">Card color (hex)</Text>
-          <HStack gap="sm" align="center">
+          <Text variant="label">Card color</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+            <Pressable
+              onPress={() => {
+                setColorInput("");
+                setColorOtherOpen(false);
+              }}
+              accessibilityLabel="Use default color"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: radius.md,
+                borderWidth: colorInput.trim() === "" ? 2 : 1,
+                borderColor: colorInput.trim() === "" ? colors.text : colors.border,
+                backgroundColor: colors.surface,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ fontSize: 10, color: colors.textMuted }}>auto</Text>
+            </Pressable>
+            {COLOR_SWATCHES.map((s) => {
+              const selected = colorInput.trim().toLowerCase() === s.hex.toLowerCase();
+              return (
+                <Pressable
+                  key={s.hex}
+                  onPress={() => {
+                    setColorInput(s.hex);
+                    setColorOtherOpen(false);
+                  }}
+                  accessibilityLabel={`Use ${s.label}`}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: radius.md,
+                    borderWidth: selected ? 2 : 1,
+                    borderColor: selected ? colors.text : colors.border,
+                    backgroundColor: s.hex,
+                  }}
+                />
+              );
+            })}
+            <Pressable
+              onPress={() => setColorOtherOpen((v) => !v)}
+              accessibilityLabel="Enter a custom color"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: radius.md,
+                borderWidth: colorOtherOpen ? 2 : 1,
+                borderColor: colorOtherOpen ? colors.text : colors.border,
+                backgroundColor: previewSwatch ?? colors.surface,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ fontSize: 10, color: previewSwatch ? "#ffffff" : colors.textMuted }}>
+                {previewSwatch ? "•" : "···"}
+              </Text>
+            </Pressable>
+          </View>
+          {colorOtherOpen ? (
             <TextInput
               value={colorInput}
               onChangeText={setColorInput}
@@ -332,7 +404,6 @@ export default function AccountDetail() {
               autoCapitalize="none"
               autoCorrect={false}
               style={{
-                flex: 1,
                 borderWidth: 1,
                 borderColor: colors.border,
                 borderRadius: radius.md,
@@ -340,17 +411,7 @@ export default function AccountDetail() {
                 color: colors.text,
               }}
             />
-            <View
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: radius.sm,
-                borderWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: previewSwatch ?? "transparent",
-              }}
-            />
-          </HStack>
+          ) : null}
           {!previewColorValid ? (
             <Text style={{ color: colors.negative, fontSize: 12 }}>
               Enter a valid hex like #0EA5E9 or leave blank.

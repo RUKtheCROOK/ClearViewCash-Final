@@ -47,12 +47,12 @@ export function MonthSelector({ palette, monthIdx, year, onPrev, onNext }: Props
           <Chev dir="left" color={palette.ink2} />
         </Pressable>
         <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink4, fontWeight: "500" }}>{prev}</Text>
+          <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink4, fontWeight: "500" }}>{prev}</Text>
           <View style={{ flexDirection: "row", alignItems: "baseline", gap: 5 }}>
             <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "600", color: palette.ink1 }}>{curr}</Text>
-            <Num style={{ color: palette.ink3, fontSize: 11.5, fontWeight: "500" }}>{year}</Num>
+            <Num style={{ color: palette.ink3, fontSize: 12, fontWeight: "500" }}>{year}</Num>
           </View>
-          <Text style={{ fontFamily: fonts.ui, fontSize: 11.5, color: palette.ink4, fontWeight: "500" }}>{next}</Text>
+          <Text style={{ fontFamily: fonts.ui, fontSize: 12, color: palette.ink4, fontWeight: "500" }}>{next}</Text>
         </View>
         <Pressable
           onPress={onNext}

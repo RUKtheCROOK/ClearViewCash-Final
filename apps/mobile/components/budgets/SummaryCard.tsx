@@ -31,7 +31,7 @@ export function SummaryCard({ palette, spentCents, totalCents, todayDay, daysInM
         }}
       >
         <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" }}>
-          <Text style={{ fontFamily: fonts.num, fontSize: 10.5, color: palette.ink3, letterSpacing: 1 }}>
+          <Text style={{ fontFamily: fonts.num, fontSize: 11, color: palette.ink3, letterSpacing: 1 }}>
             SPENT THIS MONTH
           </Text>
           <Text style={{ fontFamily: fonts.ui, fontSize: 11, color: palette.ink4 }}>
@@ -86,7 +86,7 @@ function Stat({
 }) {
   return (
     <View style={{ flex: 1 }}>
-      <Text style={{ fontFamily: fonts.num, fontSize: 9.5, color: palette.ink3, letterSpacing: 0.8, fontWeight: "600" }}>
+      <Text style={{ fontFamily: fonts.num, fontSize: 11, color: palette.ink3, letterSpacing: 0.8, fontWeight: "600" }}>
         {label}
       </Text>
       <View style={{ marginTop: 4, flexDirection: "row", alignItems: "baseline", gap: 4 }}>

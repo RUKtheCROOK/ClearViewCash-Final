@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import {
@@ -19,20 +19,20 @@ import {
 } from "@cvc/api-client";
 import type { Database } from "@cvc/types/supabase.generated";
 import { fonts } from "@cvc/ui";
-import { supabase } from "../../lib/supabase";
-import { useApp } from "../../lib/store";
-import { useTheme } from "../../lib/theme";
-import { useEffectiveSharedView } from "../../lib/view";
-import { useSpaces } from "../../hooks/useSpaces";
-import { AddIncomeWizard } from "../../components/AddIncomeWizard";
-import { RecurringSuggestionsBanner } from "../../components/RecurringSuggestionsBanner";
-import { NextPaycheckHero } from "../../components/income/NextPaycheckHero";
-import { MonthStrip } from "../../components/income/MonthStrip";
-import { YTDCard } from "../../components/income/YTDCard";
-import { SectionLabel } from "../../components/income/SectionLabel";
-import { IncomeRow as IncomeRowView, type IncomeRowDataMobile } from "../../components/income/IncomeRow";
-import { OneTimeRow } from "../../components/income/OneTimeRow";
-import { EmptyState } from "../../components/income/EmptyState";
+import { supabase } from "../../../lib/supabase";
+import { useApp } from "../../../lib/store";
+import { useTheme } from "../../../lib/theme";
+import { useEffectiveSharedView } from "../../../lib/view";
+import { useSpaces } from "../../../hooks/useSpaces";
+import { AddIncomeWizard } from "../../../components/AddIncomeWizard";
+import { RecurringSuggestionsBanner } from "../../../components/RecurringSuggestionsBanner";
+import { NextPaycheckHero } from "../../../components/income/NextPaycheckHero";
+import { MonthStrip } from "../../../components/income/MonthStrip";
+import { YTDCard } from "../../../components/income/YTDCard";
+import { SectionLabel } from "../../../components/income/SectionLabel";
+import { IncomeRow as IncomeRowView, type IncomeRowDataMobile } from "../../../components/income/IncomeRow";
+import { OneTimeRow } from "../../../components/income/OneTimeRow";
+import { EmptyState } from "../../../components/income/EmptyState";
 import type { IncomeSourceType } from "@cvc/types";
 
 type IncomeRow = Database["public"]["Tables"]["income_events"]["Row"];
@@ -88,32 +88,44 @@ export default function IncomeTab() {
   const [reloadCount, setReloadCount] = useState(0);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardSeed, setWizardSeed] = useState<IncomeSourceType | undefined>(undefined);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const reload = useCallback(() => {
+  const reload = useCallback(async () => {
     if (!activeSpaceId) return;
-    getIncomeEvents(supabase, activeSpaceId).then((rows) => setItems(rows as IncomeRow[]));
-    getIncomeReceiptsForSpace(supabase, activeSpaceId).then((rows) => setReceipts(rows as IncomeReceiptRow[]));
-    getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView: false }).then((rows) => {
-      setAccounts(
-        (rows as Array<{ id: string; name: string; display_name: string | null; mask: string | null }>).map((a) => ({
-          id: a.id, name: a.name, display_name: a.display_name, mask: a.mask,
-        })),
-      );
-    });
-    getTransactionsForView(supabase, {
-      spaceId: activeSpaceId,
-      sharedView,
-      restrictToOwnerId,
-      limit: 200,
-      fields: "id, merchant_name, amount, posted_at, pending, is_recurring, account_id",
-    }).then((rows) => {
-      const inflows = (rows as unknown as MinimalTxn[]).filter((t) => t.amount > 0);
-      setInflowTxns(inflows);
-    });
+    await Promise.all([
+      getIncomeEvents(supabase, activeSpaceId).then((rows) => setItems(rows as IncomeRow[])),
+      getIncomeReceiptsForSpace(supabase, activeSpaceId).then((rows) => setReceipts(rows as IncomeReceiptRow[])),
+      getAccountsForView(supabase, { spaceId: activeSpaceId, sharedView: false }).then((rows) => {
+        setAccounts(
+          (rows as Array<{ id: string; name: string; display_name: string | null; mask: string | null }>).map((a) => ({
+            id: a.id, name: a.name, display_name: a.display_name, mask: a.mask,
+          })),
+        );
+      }),
+      getTransactionsForView(supabase, {
+        spaceId: activeSpaceId,
+        sharedView,
+        restrictToOwnerId,
+        limit: 200,
+        fields: "id, merchant_name, amount, posted_at, pending, is_recurring, account_id",
+      }).then((rows) => {
+        const inflows = (rows as unknown as MinimalTxn[]).filter((t) => t.amount > 0);
+        setInflowTxns(inflows);
+      }),
+    ]);
   }, [activeSpaceId, sharedView, restrictToOwnerId]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [reload]);
+
   useEffect(() => {
-    reload();
+    void reload();
   }, [reload, reloadCount]);
 
   useEffect(() => {
@@ -162,7 +174,12 @@ export default function IncomeTab() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.canvas }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 80 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.ink3} />
+        }
+      >
         {/* Header */}
         <View
           style={{
@@ -206,7 +223,7 @@ export default function IncomeTab() {
         </View>
 
         {empty ? (
-          <EmptyState palette={palette} mode={mode} onAdd={openWizard} onSkip={() => undefined} />
+          <EmptyState palette={palette} mode={mode} onAdd={openWizard} />
         ) : (
           <>
             {/* Hero */}
@@ -223,6 +240,10 @@ export default function IncomeTab() {
                 accountLabel={deliveryLine(nextAccount)}
                 palette={palette}
                 mode={mode}
+                onMarkReceived={() => router.push({
+                  pathname: "/income/[id]",
+                  params: { id: next.source.id, action: "mark-received" },
+                })}
               />
             ) : null}
 
@@ -269,11 +290,12 @@ export default function IncomeTab() {
                 />
                 <View
                   style={{
+                    marginHorizontal: 16,
                     backgroundColor: palette.surface,
-                    borderTopWidth: 1,
-                    borderTopColor: palette.line,
-                    borderBottomWidth: 1,
-                    borderBottomColor: palette.line,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: palette.line,
+                    overflow: "hidden",
                   }}
                 >
                   {sections.recurring.map((r) => {
@@ -319,11 +341,12 @@ export default function IncomeTab() {
                 />
                 <View
                   style={{
+                    marginHorizontal: 16,
                     backgroundColor: palette.surface,
-                    borderTopWidth: 1,
-                    borderTopColor: palette.line,
-                    borderBottomWidth: 1,
-                    borderBottomColor: palette.line,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: palette.line,
+                    overflow: "hidden",
                   }}
                 >
                   {sections.oneTime.map((o, i) => {

@@ -29,12 +29,16 @@ interface Props {
   palette: Palette;
   mode: "light" | "dark";
   onPress: () => void;
+  onLongPress?: () => void;
   onMarkPaid?: () => void;
+  onLongPressMarkPaid?: () => void;
   onUnmarkPaid?: () => void;
   paying?: boolean;
+  selected?: boolean;
+  selectMode?: boolean;
 }
 
-export function BillRow({ bill, bucket, todayIso, accountLabel, palette, mode, onPress, onMarkPaid, onUnmarkPaid, paying }: Props) {
+export function BillRow({ bill, bucket, todayIso, accountLabel, palette, mode, onPress, onLongPress, onMarkPaid, onLongPressMarkPaid, onUnmarkPaid, paying, selected, selectMode }: Props) {
   const branding = resolveBillBranding(bill);
   const dim = bucket === "paid";
   const amountColor = dim ? palette.ink3 : palette.ink1;
@@ -45,6 +49,8 @@ export function BillRow({ bill, bucket, todayIso, accountLabel, palette, mode, o
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={400}
       android_ripple={{ color: palette.tinted }}
       style={({ pressed }) => ({
         flexDirection: "row",
@@ -54,9 +60,30 @@ export function BillRow({ bill, bucket, todayIso, accountLabel, palette, mode, o
         paddingVertical: 12,
         borderBottomWidth: 1,
         borderBottomColor: palette.line,
+        backgroundColor: selected ? palette.brandTint : undefined,
         opacity: dim ? 0.7 : pressed ? 0.85 : 1,
       })}
     >
+      {selectMode ? (
+        <View
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 999,
+            borderWidth: 2,
+            borderColor: selected ? palette.brand : palette.lineFirm,
+            backgroundColor: selected ? palette.brand : "transparent",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {selected ? (
+            <Svg width={12} height={12} viewBox="0 0 24 24">
+              <Path d="M5 12l4 4 10-10" fill="none" stroke={palette.brandOn} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          ) : null}
+        </View>
+      ) : null}
       <BillIcon hue={branding.hue} glyph={branding.glyph} mode={mode} dim={dim} />
 
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -109,14 +136,17 @@ export function BillRow({ bill, bucket, todayIso, accountLabel, palette, mode, o
           ) : null}
         </View>
         {(() => {
+          if (selectMode) return null;
           const isPaid = bucket === "paid";
           const handler = isPaid ? onUnmarkPaid : onMarkPaid;
           if (!handler) return null;
           return (
             <Pressable
               onPress={handler}
+              onLongPress={isPaid ? undefined : onLongPressMarkPaid}
+              delayLongPress={400}
               disabled={paying}
-              style={{
+              style={({ pressed }) => ({
                 marginTop: 4,
                 paddingHorizontal: 10,
                 paddingVertical: 4,
@@ -124,7 +154,8 @@ export function BillRow({ bill, bucket, todayIso, accountLabel, palette, mode, o
                 borderWidth: 1,
                 borderColor: palette.lineFirm,
                 backgroundColor: palette.surface,
-              }}
+                opacity: pressed ? 0.85 : 1,
+              })}
             >
               <Text style={{ fontSize: 11, fontWeight: "500", color: palette.ink2, fontFamily: fonts.ui }}>
                 {paying ? "Saving…" : isPaid ? "Unmark paid" : "Mark paid"}

@@ -1,4 +1,5 @@
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
+import { router } from "expo-router";
 import { Text, I, fonts, type Palette } from "@cvc/ui";
 import type { ForecastDay } from "@cvc/domain";
 
@@ -68,7 +69,100 @@ export function EventsList({
   palette: Palette;
 }) {
   const events = collectScheduledEvents(days);
-  if (events.length === 0) return null;
+
+  if (events.length === 0) {
+    return (
+      <View>
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingTop: 18,
+            paddingBottom: 6,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: fonts.uiMedium,
+              fontSize: 11.5,
+              fontWeight: "600",
+              color: p.ink2,
+              textTransform: "uppercase",
+              letterSpacing: 0.7,
+            }}
+          >
+            Upcoming · {rangeLabel}
+          </Text>
+        </View>
+        <View
+          style={{
+            backgroundColor: p.surface,
+            borderTopWidth: 1,
+            borderBottomWidth: 1,
+            borderColor: p.line,
+            paddingVertical: 22,
+            paddingHorizontal: 20,
+            alignItems: "center",
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 13,
+              fontWeight: "500",
+              color: p.ink1,
+              textAlign: "center",
+            }}
+          >
+            Nothing scheduled in the next {rangeLabel}
+          </Text>
+          <Text
+            style={{
+              fontSize: 12,
+              color: p.ink3,
+              marginTop: 4,
+              textAlign: "center",
+              lineHeight: 17,
+            }}
+          >
+            Add a bill or income event so the forecast has something to project.
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+            <Pressable
+              onPress={() => router.push("/bills")}
+              style={({ pressed }) => ({
+                height: 32,
+                paddingHorizontal: 14,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: p.lineFirm,
+                backgroundColor: p.surface,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "500", color: p.ink1 }}>Add a bill</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => router.push("/income")}
+              style={({ pressed }) => ({
+                height: 32,
+                paddingHorizontal: 14,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: p.lineFirm,
+                backgroundColor: p.surface,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "500", color: p.ink1 }}>Add income</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View>
@@ -145,9 +239,21 @@ function EventRow({
   if (e.cadence && e.cadence !== "custom" && e.cadence !== "once") meta.push("recurring");
   if (e.note) meta.push(e.note);
 
+  // Navigable when the row maps to an editable record. Card-spend estimates
+  // and what-if scenarios are read-only here.
+  const navigable = !isCard && !isWhatIf;
+  const onPress = navigable
+    ? () => {
+        if (e.kind === "income") router.push("/income");
+        else if (e.kind === "bill") router.push("/bills");
+      }
+    : undefined;
+
   return (
-    <View
-      style={{
+    <Pressable
+      onPress={onPress}
+      disabled={!navigable}
+      style={({ pressed }) => ({
         flexDirection: "row",
         gap: 12,
         alignItems: "center",
@@ -155,9 +261,9 @@ function EventRow({
         paddingHorizontal: 16,
         borderBottomWidth: isLast ? 0 : 1,
         borderBottomColor: p.line,
-        backgroundColor: isWhatIf ? p.brandTint : "transparent",
+        backgroundColor: isWhatIf ? p.brandTint : pressed && navigable ? p.sunken : "transparent",
         ...(isWhatIf ? { borderLeftWidth: 2, borderLeftColor: p.brand } : {}),
-      }}
+      })}
     >
       {/* Date block */}
       <View
@@ -264,6 +370,6 @@ function EventRow({
       >
         {fmtAmount(e.amount)}
       </Text>
-    </View>
+    </Pressable>
   );
 }

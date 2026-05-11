@@ -6,6 +6,7 @@ import { useSpaces } from "../hooks/useSpaces";
 import { useUnreadNotifications } from "../hooks/useUnreadNotifications";
 import { useTier } from "../hooks/useTier";
 import { useTheme } from "../lib/theme";
+import { useApp } from "../lib/store";
 import { useDashboardHeader } from "./DashboardHeaderContext";
 import { SpaceSwitcherSheet } from "./SpaceSwitcherSheet";
 import { NotificationsDrawer } from "./NotificationsDrawer";
@@ -17,24 +18,24 @@ interface Props {
 }
 
 /**
- * Sticky header — shown across every tab. Renders the active-space pill,
- * a premium/quick-actions button, the notification bell + drawer, and the
- * gear (→ settings). On the dashboard tab a hero balance section is rendered
- * below; other tabs render only the row.
+ * Sticky header — shown across every tab. Renders the active-space pill, a
+ * universal "+" quick-actions button, an upgrade gem (Free users only), and
+ * the notification bell + drawer. On the dashboard tab a hero balance section
+ * is rendered below; other tabs render only the row.
  *
- * The hero data is supplied by `DashboardHeaderContext` so any tab that wants
- * to populate it can do so without prop-drilling through the tab layout.
- *
- * The premium button to the left of the bell behaves differently per tier:
- *   - Free (starter): opens the Premium upsell modal with a 14-day trial CTA.
- *   - Pro / Household: opens a quick-actions popover with hub link, manual
- *     transaction add, and dark mode toggle.
+ * The hero data is supplied by `DashboardHeaderContext`. Two affordances are
+ * deliberately kept distinct so the verb stays stable across tiers:
+ *   - "+" always opens the quick-actions popover (Add transaction, theme,
+ *     premium-hub link). Same meaning for every tier.
+ *   - Gem only appears for Free (starter) users and opens the Premium upsell.
+ *     It disappears once the user is on Pro/Household.
  */
 export function SpaceHeader({ onAddTransaction }: Props = {}) {
   const { activeSpace } = useSpaces();
   const { palette, sp } = useTheme(activeSpace?.tint);
   const unread = useUnreadNotifications();
   const { tier, canForecast } = useTier();
+  const requestAddTransaction = useApp((s) => s.requestAddTransaction);
   const isPremium = tier !== "starter" || canForecast;
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -42,12 +43,7 @@ export function SpaceHeader({ onAddTransaction }: Props = {}) {
   const [quickOpen, setQuickOpen] = useState(false);
   const { hero } = useDashboardHeader();
   const pathname = usePathname();
-  const showHero = pathname === "/dashboard" || pathname === "/forecast";
-
-  function handlePremiumButton() {
-    if (isPremium) setQuickOpen(true);
-    else setPremiumOpen(true);
-  }
+  const showHero = pathname === "/dashboard";
 
   return (
     <View
@@ -87,9 +83,9 @@ export function SpaceHeader({ onAddTransaction }: Props = {}) {
           <I.chev color={sp.pillFg} />
         </Pressable>
 
-        <View style={{ flexDirection: "row", gap: 4 }}>
+        <View style={{ flexDirection: "row", gap: 8 }}>
           <Pressable
-            onPress={handlePremiumButton}
+            onPress={() => setQuickOpen(true)}
             style={{
               width: 36,
               height: 36,
@@ -98,10 +94,26 @@ export function SpaceHeader({ onAddTransaction }: Props = {}) {
               justifyContent: "center",
             }}
             hitSlop={6}
-            accessibilityLabel={isPremium ? "Quick actions" : "Premium features"}
+            accessibilityLabel="Quick actions"
           >
-            <I.gem color={isPremium ? palette.brand : palette.ink1} />
+            <I.plus color={palette.ink1} />
           </Pressable>
+          {!isPremium ? (
+            <Pressable
+              onPress={() => setPremiumOpen(true)}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+              hitSlop={6}
+              accessibilityLabel="Upgrade to Pro"
+            >
+              <I.gem color={palette.brand} />
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => setDrawerOpen(true)}
             style={{
@@ -112,6 +124,7 @@ export function SpaceHeader({ onAddTransaction }: Props = {}) {
               justifyContent: "center",
             }}
             hitSlop={6}
+            accessibilityLabel="Notifications"
           >
             <View>
               <I.bell color={palette.ink1} />
@@ -140,19 +153,6 @@ export function SpaceHeader({ onAddTransaction }: Props = {}) {
                 </View>
               ) : null}
             </View>
-          </Pressable>
-          <Pressable
-            onPress={() => router.push("/settings")}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-            hitSlop={6}
-          >
-            <I.gear color={palette.ink1} />
           </Pressable>
         </View>
       </View>
@@ -218,8 +218,14 @@ export function SpaceHeader({ onAddTransaction }: Props = {}) {
         onClose={() => setQuickOpen(false)}
         onAddTransaction={() => {
           setQuickOpen(false);
-          if (onAddTransaction) onAddTransaction();
-          else router.push("/(tabs)/transactions");
+          if (onAddTransaction) {
+            onAddTransaction();
+          } else {
+            // Signal the Activity tab to open the AddTransactionSheet on mount,
+            // then route there. Activity clears the flag once it consumes it.
+            requestAddTransaction(true);
+            router.push("/(tabs)/transactions");
+          }
         }}
       />
     </View>

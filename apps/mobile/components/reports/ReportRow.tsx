@@ -32,6 +32,7 @@ export function ReportRow({
   return (
     <Pressable
       onPress={onPress}
+      disabled={comingSoon}
       style={{
         paddingHorizontal: 18,
         paddingVertical: 14,
@@ -40,6 +41,7 @@ export function ReportRow({
         gap: 12,
         borderBottomWidth: last ? 0 : 1,
         borderBottomColor: palette.line,
+        opacity: comingSoon ? 0.55 : 1,
       }}
     >
       <ReportIcon kind={kind} hue={hue} mode={mode} size={36} />

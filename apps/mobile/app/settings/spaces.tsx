@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, Share, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
-import { fonts, SPACE_HUES, spaceKeyFromTint } from "@cvc/ui";
+import { fonts, SheetHeader, SPACE_HUES, spaceKeyFromTint } from "@cvc/ui";
 import {
   createSpace,
   deleteSpace,
@@ -19,6 +19,7 @@ import { useApp } from "../../lib/store";
 import { useTheme } from "../../lib/theme";
 import { useSpaces } from "../../hooks/useSpaces";
 import { useAuth } from "../../hooks/useAuth";
+import { useDirtyGuard } from "../../hooks/useDirtyGuard";
 import { Group, PageHeader, Row, SectionLabel, ToggleRow } from "../../components/settings/SettingsAtoms";
 import { SpaceCard } from "../../components/settings/SpaceCard";
 import { MemberRow } from "../../components/settings/MemberRow";
@@ -111,6 +112,36 @@ export default function Spaces() {
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
+
+  const renameDirty = renameOpen && managingSpaceName(renameValue) !== null;
+  const createDirty = createOpen && createName.trim().length > 0;
+  const inviteDirty = inviteOpen && inviteEmail.trim().length > 0;
+  const { confirmDiscard: confirmRenameClose } = useDirtyGuard(renameDirty);
+  const { confirmDiscard: confirmCreateClose } = useDirtyGuard(createDirty);
+  const { confirmDiscard: confirmInviteClose } = useDirtyGuard(inviteDirty);
+
+  function managingSpaceName(typed: string): string | null {
+    const trimmed = typed.trim();
+    if (!trimmed) return null;
+    const current = spaces.find((s) => s.id === managingId)?.name?.trim() ?? "";
+    return trimmed === current ? null : trimmed;
+  }
+
+  function closeRename() {
+    confirmRenameClose(() => setRenameOpen(false));
+  }
+  function closeCreate() {
+    confirmCreateClose(() => {
+      setCreateOpen(false);
+      setCreateName("");
+    });
+  }
+  function closeInvite() {
+    confirmInviteClose(() => {
+      setInviteOpen(false);
+      setInviteEmail("");
+    });
+  }
 
   // Keep managing in sync with active when it changes externally
   useEffect(() => {
@@ -522,7 +553,7 @@ export default function Spaces() {
                         }}
                       />
                       <View style={{ flexDirection: "row", gap: 8 }}>
-                        <Pressable onPress={() => setInviteOpen(false)} style={{ flex: 1, height: 38, borderRadius: 10, borderWidth: 1, borderColor: palette.lineFirm, alignItems: "center", justifyContent: "center" }}>
+                        <Pressable onPress={closeInvite} style={{ flex: 1, height: 38, borderRadius: 10, borderWidth: 1, borderColor: palette.lineFirm, alignItems: "center", justifyContent: "center" }}>
                           <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12.5, fontWeight: "500", color: palette.ink2 }}>Cancel</Text>
                         </Pressable>
                         <Pressable onPress={handleInvite} style={{ flex: 1, height: 38, borderRadius: 10, backgroundColor: palette.brand, alignItems: "center", justifyContent: "center" }}>
@@ -658,63 +689,72 @@ export default function Spaces() {
       </ScrollView>
 
       {/* Create modal */}
-      <Modal visible={createOpen} transparent animationType="fade" onRequestClose={() => setCreateOpen(false)}>
-        <Pressable onPress={() => setCreateOpen(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 }}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: palette.surface, borderRadius: 18, padding: 18, gap: 12 }}>
-            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 18, fontWeight: "500", color: palette.ink1 }}>Create a space</Text>
-            <TextInput
-              value={createName}
-              onChangeText={setCreateName}
-              placeholder="House, Trip, Roommates…"
-              placeholderTextColor={palette.ink4}
-              maxLength={64}
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-                borderRadius: 10,
-                backgroundColor: palette.surface,
-                borderWidth: 1,
-                borderColor: palette.line,
-                fontFamily: fonts.ui,
-                fontSize: 14,
-                color: palette.ink1,
-              }}
+      <Modal visible={createOpen} transparent animationType="fade" onRequestClose={closeCreate}>
+        <Pressable onPress={closeCreate} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}>
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: palette.surface,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              paddingBottom: 24,
+            }}
+          >
+            <SheetHeader
+              palette={palette}
+              title="Create a space"
+              onClose={closeCreate}
+              onSave={handleCreate}
+              saveLabel="Create"
+              saveDisabled={!createName.trim()}
+              withGrabHandle
             />
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-              {HUE_VALUES.map((h) => (
-                <Pressable
-                  key={h}
-                  onPress={() => setCreateHue(h)}
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 8,
-                    borderRadius: 999,
-                    backgroundColor: createHue === h ? `oklch(94% 0.026 ${h})` : palette.tinted,
-                    borderWidth: createHue === h ? 1 : 0,
-                    borderColor: `oklch(60% 0.105 ${h})`,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <View style={{ width: 12, height: 12, borderRadius: 999, backgroundColor: `oklch(60% 0.105 ${h})` }} />
-                  <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12, fontWeight: "500", color: palette.ink2 }}>{HUE_LABELS[h]}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <View style={{ flexDirection: "row", gap: 8 }}>
+            <View style={{ paddingHorizontal: 18, paddingTop: 4, gap: 12 }}>
+              <TextInput
+                value={createName}
+                onChangeText={setCreateName}
+                placeholder="House, Trip, Roommates…"
+                placeholderTextColor={palette.ink4}
+                maxLength={64}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  backgroundColor: palette.surface,
+                  borderWidth: 1,
+                  borderColor: palette.line,
+                  fontFamily: fonts.ui,
+                  fontSize: 14,
+                  color: palette.ink1,
+                }}
+              />
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                {HUE_VALUES.map((h) => (
+                  <Pressable
+                    key={h}
+                    onPress={() => setCreateHue(h)}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 8,
+                      borderRadius: 999,
+                      backgroundColor: createHue === h ? `oklch(94% 0.026 ${h})` : palette.tinted,
+                      borderWidth: createHue === h ? 1 : 0,
+                      borderColor: `oklch(60% 0.105 ${h})`,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <View style={{ width: 12, height: 12, borderRadius: 999, backgroundColor: `oklch(60% 0.105 ${h})` }} />
+                    <Text style={{ fontFamily: fonts.uiMedium, fontSize: 12, fontWeight: "500", color: palette.ink2 }}>{HUE_LABELS[h]}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <Pressable
                 onPress={() => router.push("/accept-invite")}
-                style={{ flex: 1, height: 42, borderRadius: 10, borderWidth: 1, borderColor: palette.lineFirm, alignItems: "center", justifyContent: "center" }}
+                style={{ height: 42, borderRadius: 10, borderWidth: 1, borderColor: palette.lineFirm, alignItems: "center", justifyContent: "center" }}
               >
                 <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink2 }}>I have an invite</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleCreate}
-                disabled={!createName.trim()}
-                style={{ flex: 1, height: 42, borderRadius: 10, backgroundColor: palette.brand, alignItems: "center", justifyContent: "center", opacity: createName.trim() ? 1 : 0.5 }}
-              >
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.brandOn }}>Create</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -722,34 +762,43 @@ export default function Spaces() {
       </Modal>
 
       {/* Rename modal */}
-      <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
-        <Pressable onPress={() => setRenameOpen(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 }}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: palette.surface, borderRadius: 18, padding: 18, gap: 12 }}>
-            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 18, fontWeight: "500", color: palette.ink1 }}>Rename space</Text>
-            <TextInput
-              value={renameValue}
-              onChangeText={setRenameValue}
-              maxLength={64}
-              autoFocus
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-                borderRadius: 10,
-                backgroundColor: palette.surface,
-                borderWidth: 1,
-                borderColor: palette.line,
-                fontFamily: fonts.ui,
-                fontSize: 14,
-                color: palette.ink1,
-              }}
+      <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={closeRename}>
+        <Pressable onPress={closeRename} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}>
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: palette.surface,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              paddingBottom: 24,
+            }}
+          >
+            <SheetHeader
+              palette={palette}
+              title="Rename space"
+              onClose={closeRename}
+              onSave={handleRename}
+              saveDisabled={!renameDirty}
+              withGrabHandle
             />
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <Pressable onPress={() => setRenameOpen(false)} style={{ flex: 1, height: 42, borderRadius: 10, borderWidth: 1, borderColor: palette.lineFirm, alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink2 }}>Cancel</Text>
-              </Pressable>
-              <Pressable onPress={handleRename} disabled={!renameValue.trim()} style={{ flex: 1, height: 42, borderRadius: 10, backgroundColor: palette.brand, alignItems: "center", justifyContent: "center", opacity: renameValue.trim() ? 1 : 0.5 }}>
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.brandOn }}>Save</Text>
-              </Pressable>
+            <View style={{ paddingHorizontal: 18, paddingTop: 4, gap: 12 }}>
+              <TextInput
+                value={renameValue}
+                onChangeText={setRenameValue}
+                maxLength={64}
+                autoFocus
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  backgroundColor: palette.surface,
+                  borderWidth: 1,
+                  borderColor: palette.line,
+                  fontFamily: fonts.ui,
+                  fontSize: 14,
+                  color: palette.ink1,
+                }}
+              />
             </View>
           </Pressable>
         </Pressable>
@@ -757,30 +806,45 @@ export default function Spaces() {
 
       {/* Color picker modal */}
       <Modal visible={colorPickerOpen} transparent animationType="fade" onRequestClose={() => setColorPickerOpen(false)}>
-        <Pressable onPress={() => setColorPickerOpen(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 }}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: palette.surface, borderRadius: 18, padding: 18, gap: 12 }}>
-            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 18, fontWeight: "500", color: palette.ink1 }}>Space color</Text>
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-              {HUE_VALUES.map((h) => (
-                <Pressable
-                  key={h}
-                  onPress={() => handlePickColor(h)}
-                  style={{
-                    paddingHorizontal: 12,
-                    paddingVertical: 10,
-                    borderRadius: 999,
-                    backgroundColor: managingHue === h ? `oklch(94% 0.026 ${h})` : palette.tinted,
-                    borderWidth: managingHue === h ? 1 : 0,
-                    borderColor: `oklch(60% 0.105 ${h})`,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <View style={{ width: 14, height: 14, borderRadius: 999, backgroundColor: `oklch(60% 0.105 ${h})` }} />
-                  <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink2 }}>{HUE_LABELS[h]}</Text>
-                </Pressable>
-              ))}
+        <Pressable onPress={() => setColorPickerOpen(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}>
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: palette.surface,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              paddingBottom: 24,
+            }}
+          >
+            <SheetHeader
+              palette={palette}
+              title="Space color"
+              onClose={() => setColorPickerOpen(false)}
+              withGrabHandle
+            />
+            <View style={{ paddingHorizontal: 18, paddingTop: 4, gap: 12 }}>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                {HUE_VALUES.map((h) => (
+                  <Pressable
+                    key={h}
+                    onPress={() => handlePickColor(h)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      borderRadius: 999,
+                      backgroundColor: managingHue === h ? `oklch(94% 0.026 ${h})` : palette.tinted,
+                      borderWidth: managingHue === h ? 1 : 0,
+                      borderColor: `oklch(60% 0.105 ${h})`,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <View style={{ width: 14, height: 14, borderRadius: 999, backgroundColor: `oklch(60% 0.105 ${h})` }} />
+                    <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink2 }}>{HUE_LABELS[h]}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
           </Pressable>
         </Pressable>

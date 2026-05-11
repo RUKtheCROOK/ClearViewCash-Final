@@ -22,10 +22,9 @@ interface Props {
   palette: Palette;
   mode: ThemeMode;
   onAdd: (sourceType?: IncomeSourceType) => void;
-  onSkip: () => void;
 }
 
-export function EmptyState({ palette, mode, onAdd, onSkip }: Props) {
+export function EmptyState({ palette, mode, onAdd }: Props) {
   const illoBg = mode === "dark" ? "#1f3024" : "#e6f1eb";
 
   return (
@@ -152,7 +151,7 @@ export function EmptyState({ palette, mode, onAdd, onSkip }: Props) {
         </View>
       </View>
 
-      <View style={{ paddingHorizontal: 16, paddingTop: 20, gap: 8 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 20 }}>
         <Pressable
           onPress={() => onAdd()}
           android_ripple={{ color: palette.tinted }}
@@ -170,19 +169,6 @@ export function EmptyState({ palette, mode, onAdd, onSkip }: Props) {
           <PlusIcon color={palette.brandOn} />
           <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14.5, fontWeight: "500", color: palette.brandOn }}>
             Add income source
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={onSkip}
-          style={({ pressed }) => ({
-            height: 44,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: pressed ? 0.6 : 1,
-          })}
-        >
-          <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink2 }}>
-            Skip — I&apos;ll add later
           </Text>
         </Pressable>
       </View>

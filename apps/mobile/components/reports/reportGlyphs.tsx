@@ -200,6 +200,27 @@ export function reportFromSlug(slug: string): ReportMeta | null {
   return SLUG_TO_META[slug] ?? null;
 }
 
+export function reportFromKind(kind: ReportKind): ReportMeta | null {
+  return REPORTS.find((r) => r.kind === kind) ?? null;
+}
+
+// Single source of truth for the default range/meta string shown alongside a
+// report on the hub (both the featured cards and the "All reports" list).
+export function defaultMetaLabel(kind: ReportKind): string {
+  switch (kind) {
+    case "cash_flow":
+      return "Monthly · 12 mo";
+    case "category":
+      return "This month";
+    case "net_worth":
+      return "Year to date";
+    case "income":
+      return "Year to date";
+    case "activity":
+      return "This month";
+  }
+}
+
 export function glyphFor(kind: ReportKind, color: string, size = 22) {
   switch (kind) {
     case "cash_flow":

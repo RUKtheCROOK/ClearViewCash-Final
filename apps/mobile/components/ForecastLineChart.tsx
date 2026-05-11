@@ -107,15 +107,20 @@ export function ForecastLineChart({
   const showLowMarker = lowBalance && lowV < thresholdDollars;
 
   // Event markers: days with at least one scheduled item.
-  const eventPts = days
-    .map((d, i) => ({
-      i,
-      day: d,
-      cx: x(i),
-      cy: y(series[i]!),
-      hasScheduled: d.appliedItems.some((it) => it.source === "scheduled"),
-    }))
-    .filter((e) => e.hasScheduled);
+  // Hidden beyond 30 days — at 90D/1Y the diamonds smear into a wall and the
+  // line alone tells the trend more clearly. Tap-to-select still works.
+  const showEventMarkers = count <= 30;
+  const eventPts = showEventMarkers
+    ? days
+        .map((d, i) => ({
+          i,
+          day: d,
+          cx: x(i),
+          cy: y(series[i]!),
+          hasScheduled: d.appliedItems.some((it) => it.source === "scheduled"),
+        }))
+        .filter((e) => e.hasScheduled)
+    : [];
 
   // X-axis ticks — first, last, and ~3 evenly-spaced interior ticks.
   const tickIndices = uniqueAscending([
@@ -148,6 +153,20 @@ export function ForecastLineChart({
     Math.max(0, lowMarkerX - calloutW / 2),
     svgW - calloutW,
   );
+
+  // Selected-day callout positioning — clamp + avoid overlap with low callout.
+  const selValid =
+    selectedIndex != null && selectedIndex >= 0 && selectedIndex < count;
+  const selMarkerX = selValid ? x(selectedIndex!) : 0;
+  const selCalloutW = 132;
+  const selCalloutLeft = Math.min(
+    Math.max(0, selMarkerX - selCalloutW / 2),
+    svgW - selCalloutW,
+  );
+  const selBelowFloor = selValid && series[selectedIndex!]! < thresholdDollars;
+  // Push callout to bottom band when low-balance callout is also showing
+  // (top band is already taken).
+  const selCalloutOnTop = !showLowMarker;
 
   const handleChartPress = (event: GestureResponderEvent) => {
     if (!onSelectIndex) return;
@@ -210,7 +229,7 @@ export function ForecastLineChart({
               fontWeight="500"
               fill={lowBalance ? p.warn : p.ink2}
             >
-              {`Threshold · $${Math.round(thresholdDollars).toLocaleString("en-US")}`}
+              {`Floor · $${Math.round(thresholdDollars).toLocaleString("en-US")}`}
             </SvgText>
 
             {/* Projected line — segmented (or ghost+scenario when comparing) */}
@@ -363,6 +382,59 @@ export function ForecastLineChart({
           </View>
         )}
 
+        {/* Selected-day callout */}
+        {selValid && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: CARD_PAD_H + selCalloutLeft,
+              top: selCalloutOnTop ? 12 : undefined,
+              bottom: selCalloutOnTop ? undefined : 30,
+              backgroundColor: p.surface,
+              borderWidth: 1,
+              borderColor: selBelowFloor ? `${p.warn}55` : p.lineFirm,
+              padding: 6,
+              paddingHorizontal: 8,
+              borderRadius: 8,
+              maxWidth: selCalloutW,
+              shadowColor: "#000",
+              shadowOpacity: 0.08,
+              shadowOffset: { width: 0, height: 2 },
+              shadowRadius: 8,
+              elevation: 2,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 10,
+                fontWeight: "600",
+                color: p.ink3,
+                textTransform: "uppercase",
+                letterSpacing: 0.6,
+              }}
+            >
+              {tickLabel(days, selectedIndex!)}
+            </Text>
+            <Text
+              style={{
+                fontFamily: fonts.num,
+                fontSize: 13,
+                fontWeight: "600",
+                color: selBelowFloor ? p.warn : p.ink1,
+                marginTop: 1,
+              }}
+            >
+              ${Math.round(series[selectedIndex!]!).toLocaleString("en-US")}
+              {selBelowFloor ? (
+                <Text style={{ fontFamily: fonts.ui, fontSize: 10, fontWeight: "500", color: p.warn }}>
+                  {"  · below floor"}
+                </Text>
+              ) : null}
+            </Text>
+          </View>
+        )}
+
         {/* Legend */}
         <View
           style={{
@@ -379,21 +451,39 @@ export function ForecastLineChart({
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
             <View style={{ width: 14, height: 2, backgroundColor: p.brand, borderRadius: 1 }} />
-            <Text style={{ fontSize: 10.5, color: p.ink3 }}>Projected</Text>
+            <Text style={{ fontSize: 10.5, color: p.ink3 }}>
+              {compareLine ? "Scenario" : "Projected"}
+            </Text>
           </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-            <View
-              style={{
-                width: 7,
-                height: 7,
-                transform: [{ rotate: "45deg" }],
-                borderWidth: 1.4,
-                borderColor: p.ink2,
-                backgroundColor: p.surface,
-              }}
-            />
-            <Text style={{ fontSize: 10.5, color: p.ink3 }}>Event</Text>
-          </View>
+          {compareLine ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <View
+                style={{
+                  width: 14,
+                  height: 0,
+                  borderTopWidth: 1.4,
+                  borderTopColor: p.ink4,
+                  borderStyle: "dashed",
+                }}
+              />
+              <Text style={{ fontSize: 10.5, color: p.ink3 }}>Baseline</Text>
+            </View>
+          ) : null}
+          {showEventMarkers ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <View
+                style={{
+                  width: 7,
+                  height: 7,
+                  transform: [{ rotate: "45deg" }],
+                  borderWidth: 1.4,
+                  borderColor: p.ink2,
+                  backgroundColor: p.surface,
+                }}
+              />
+              <Text style={{ fontSize: 10.5, color: p.ink3 }}>Event</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </View>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -11,7 +12,6 @@ import {
   todayIso,
 } from "@cvc/domain";
 import {
-  deleteIncomeEvent,
   getAccountsForView,
   getIncomeEventById,
   getIncomeReceipts,
@@ -19,13 +19,13 @@ import {
   resumeIncomeEvent,
 } from "@cvc/api-client";
 import type { Database } from "@cvc/types/supabase.generated";
-import { fonts } from "@cvc/ui";
-import { supabase } from "../../lib/supabase";
-import { useTheme } from "../../lib/theme";
-import { IncomeIcon } from "../../components/income/IncomeIcon";
-import { Num, fmtMoneyShort, fmtMoneyDollars, fmtMoneyRange } from "../../components/income/Num";
-import { VariabilityChart } from "../../components/income/VariabilityChart";
-import { IncomeEditSheet, type EditableIncome } from "../../components/IncomeEditSheet";
+import { fonts, I } from "@cvc/ui";
+import { supabase } from "../../../lib/supabase";
+import { useTheme } from "../../../lib/theme";
+import { IncomeIcon } from "../../../components/income/IncomeIcon";
+import { Num, fmtMoneyShort, fmtMoneyDollars, fmtMoneyRange } from "../../../components/income/Num";
+import { VariabilityChart } from "../../../components/income/VariabilityChart";
+import { IncomeEditSheet, type EditableIncome } from "../../../components/IncomeEditSheet";
 
 type IncomeRow = Database["public"]["Tables"]["income_events"]["Row"];
 type IncomeReceiptRow = Database["public"]["Tables"]["income_receipts"]["Row"];
@@ -50,6 +50,15 @@ function approxDateLabel(iso: string): string {
   return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
+function countdownLabel(daysUntil: number, paused: boolean): string {
+  if (paused) return "paused";
+  if (daysUntil === 0) return "today";
+  if (daysUntil === 1) return "tomorrow";
+  if (daysUntil === -1) return "1 day overdue";
+  if (daysUntil < 0) return `${-daysUntil} days overdue`;
+  return `in ${daysUntil} days`;
+}
+
 function cadenceLabel(c: string): string {
   switch (c) {
     case "weekly":   return "weekly";
@@ -63,11 +72,13 @@ function cadenceLabel(c: string): string {
 }
 
 export default function IncomeDetailScreen() {
-  const params = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string; action?: string }>();
   const id = typeof params.id === "string" ? params.id : "";
+  const initialAction = typeof params.action === "string" ? params.action : null;
   const router = useRouter();
   const today = todayIso();
   const { palette, mode } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const [item, setItem] = useState<IncomeRow | null>(null);
   const [receipts, setReceipts] = useState<IncomeReceiptRow[]>([]);
@@ -94,8 +105,14 @@ export default function IncomeDetailScreen() {
   }, [id]);
 
   useEffect(() => {
-    reload();
+    void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (initialAction === "mark-received" && item) {
+      setEditVisible(true);
+    }
+  }, [initialAction, item]);
 
   const variability = useMemo(() => {
     if (receipts.length === 0) return null;
@@ -114,7 +131,7 @@ export default function IncomeDetailScreen() {
 
   if (!item) {
     return (
-      <View style={{ flex: 1, backgroundColor: palette.canvas, paddingTop: 50 }}>
+      <View style={{ flex: 1, backgroundColor: palette.canvas, paddingTop: insets.top }}>
         <Stack.Screen options={{ headerShown: false }} />
         <Pressable
           onPress={() => router.back()}
@@ -128,11 +145,24 @@ export default function IncomeDetailScreen() {
             justifyContent: "center",
           }}
         >
-          <Svg width={18} height={18} viewBox="0 0 24 24">
-            <Path d="M15 6l-6 6 6 6" fill="none" stroke={palette.ink2} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-          </Svg>
+          <I.chevL color={palette.ink2} size={18} />
         </Pressable>
-        <Text style={{ paddingHorizontal: 18, fontFamily: fonts.ui, color: palette.ink3, fontSize: 13 }}>Loading…</Text>
+
+        <View style={{ paddingHorizontal: 24, paddingTop: 24, alignItems: "center" }}>
+          <View
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: 16,
+              backgroundColor: palette.skeleton,
+              marginBottom: 18,
+            }}
+          />
+          <View style={{ width: 180, height: 18, borderRadius: 6, backgroundColor: palette.skeleton }} />
+          <View style={{ marginTop: 10, width: 120, height: 12, borderRadius: 6, backgroundColor: palette.skeleton }} />
+          <View style={{ marginTop: 28, width: 220, height: 32, borderRadius: 8, backgroundColor: palette.skeleton }} />
+          <View style={{ marginTop: 10, width: 160, height: 12, borderRadius: 6, backgroundColor: palette.skeleton }} />
+        </View>
       </View>
     );
   }
@@ -168,27 +198,6 @@ export default function IncomeDetailScreen() {
     }
   }
 
-  function confirmDelete() {
-    Alert.alert("Delete income source?", "This removes the source and its receipt history.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          if (!item) return;
-          setBusy("delete");
-          try {
-            await deleteIncomeEvent(supabase, item.id);
-            router.back();
-          } catch (e) {
-            setError((e as Error).message ?? "Could not delete.");
-            setBusy(null);
-          }
-        },
-      },
-    ]);
-  }
-
   const accountText = account ? `${account.display_name ?? account.name}${account.mask ? ` ··${account.mask}` : ""}` : null;
   const typeLabel = `${incomeLabelForType(item.source_type)} · ${cadenceLabel(item.cadence)}${variable ? " · variable" : ""}`;
   const expectedAmount = variable && item.amount_low != null && item.amount_high != null
@@ -218,7 +227,7 @@ export default function IncomeDetailScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: palette.canvas }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <ScrollView contentContainerStyle={{ paddingTop: 50, paddingBottom: 28 }}>
+      <ScrollView contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 28 }}>
         {/* Top nav */}
         <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Pressable
@@ -228,9 +237,7 @@ export default function IncomeDetailScreen() {
               alignItems: "center", justifyContent: "center",
             }}
           >
-            <Svg width={18} height={18} viewBox="0 0 24 24">
-              <Path d="M15 6l-6 6 6 6" fill="none" stroke={palette.ink2} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-            </Svg>
+            <I.chevL color={palette.ink2} size={18} />
           </Pressable>
           <View style={{ flex: 1 }} />
         </View>
@@ -243,7 +250,7 @@ export default function IncomeDetailScreen() {
           <Text
             style={{
               fontFamily: fonts.uiMedium,
-              fontSize: 22,
+              fontSize: 20,
               fontWeight: "500",
               color: palette.ink1,
               letterSpacing: -0.3,
@@ -275,11 +282,11 @@ export default function IncomeDetailScreen() {
               </Num>
               <View style={{ marginTop: 4, flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>
                 <Text style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink2 }}>
-                  ~{approxDateLabel(item.next_due_at)}
+                  {approxDateLabel(item.next_due_at)}
                 </Text>
                 <Text style={{ color: palette.ink4 }}>·</Text>
                 <Text style={{ fontFamily: fonts.ui, fontSize: 13, color: palette.ink2 }}>
-                  {paused ? "paused" : daysUntil < 0 ? `${-daysUntil} days late` : daysUntil === 0 ? "today" : `${daysUntil} days`}
+                  {countdownLabel(daysUntil, paused)}
                 </Text>
                 {accountText ? (
                   <>
@@ -329,36 +336,25 @@ export default function IncomeDetailScreen() {
               </Svg>
             )}
           />
-          <ActionButton
-            label={paused ? "Resume" : "Pause"}
-            tinted={false}
-            onPress={togglePause}
-            disabled={busy === "pause"}
-            palette={palette}
-            iconColor={palette.ink1}
-            renderIcon={(c) => (
-              <Svg width={16} height={16} viewBox="0 0 24 24">
-                {paused ? (
-                  <Path d="M8 5l11 7-11 7V5z" fill={c} />
-                ) : (
-                  <Path d="M9 5v14M15 5v14" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                )}
-              </Svg>
-            )}
-          />
-          <ActionButton
-            label={paused ? "Paused" : "Active"}
-            tinted
-            onPress={() => undefined}
-            palette={palette}
-            iconColor={palette.pos}
-            renderIcon={(c) => (
-              <Svg width={16} height={16} viewBox="0 0 24 24">
-                <Path d="M21 12a9 9 0 11-3-6.7" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                <Path d="M21 4v5h-5" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-              </Svg>
-            )}
-          />
+          {item.cadence !== "once" ? (
+            <ActionButton
+              label={paused ? "Resume" : "Pause"}
+              tinted={false}
+              onPress={togglePause}
+              disabled={busy === "pause"}
+              palette={palette}
+              iconColor={palette.ink1}
+              renderIcon={(c) => (
+                <Svg width={16} height={16} viewBox="0 0 24 24">
+                  {paused ? (
+                    <Path d="M8 5l11 7-11 7V5z" fill={c} />
+                  ) : (
+                    <Path d="M9 5v14M15 5v14" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                  )}
+                </Svg>
+              )}
+            />
+          ) : null}
         </View>
 
         {/* Variability chart */}
@@ -422,20 +418,7 @@ export default function IncomeDetailScreen() {
                   borderBottomColor: palette.line,
                 }}
               >
-                <View
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 8,
-                    backgroundColor: palette.posTint,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Svg width={14} height={14} viewBox="0 0 24 24">
-                    <Path d="M12 5v14M5 12l7 7 7-7" fill="none" stroke={palette.pos} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
-                  </Svg>
-                </View>
+                <IncomeIcon sourceType={item.source_type} mode={mode} size={30} radius={8} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.ink1 }}>
                     {depositDateLabel(r.received_at)}
@@ -457,30 +440,6 @@ export default function IncomeDetailScreen() {
         ) : null}
 
         {/* Destructive */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 18 }}>
-          <Pressable
-            onPress={confirmDelete}
-            disabled={busy === "delete"}
-            style={({ pressed }) => ({
-              height: 48,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: palette.lineFirm,
-              alignItems: "center",
-              justifyContent: "center",
-              flexDirection: "row",
-              gap: 8,
-              opacity: pressed ? 0.85 : 1,
-            })}
-          >
-            <Svg width={16} height={16} viewBox="0 0 24 24">
-              <Path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" fill="none" stroke={palette.warn} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-            </Svg>
-            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.warn }}>
-              {busy === "delete" ? "Deleting…" : "Delete income source"}
-            </Text>
-          </Pressable>
-        </View>
       </ScrollView>
 
       <IncomeEditSheet

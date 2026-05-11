@@ -141,49 +141,59 @@ interface SpaceFilterPillProps {
 export function SpaceFilterPill({ palette, spaces, activeSpaceId, onChange }: SpaceFilterPillProps) {
   const [open, setOpen] = useState(false);
   const active = spaces.find((s) => s.id === activeSpaceId) ?? spaces[0];
+  const canSwitch = spaces.length > 1;
+
+  const labelRow = (
+    <>
+      <Text
+        style={{
+          fontFamily: fonts.num,
+          fontSize: 9.5,
+          color: palette.ink3,
+          letterSpacing: 0.7,
+          fontWeight: "600",
+        }}
+      >
+        SPACE
+      </Text>
+      <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <View
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: 999,
+            backgroundColor: active?.tint ?? palette.brand,
+          }}
+        />
+        <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.ink1 }}>
+          {active?.name ?? "Personal"}
+        </Text>
+      </View>
+      {canSwitch ? <ChevDownIcon color={palette.ink3} /> : null}
+    </>
+  );
+
+  const baseStyle = {
+    padding: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.line,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 10,
+  };
 
   return (
     <View style={{ flex: 1 }}>
-      <Pressable
-        onPress={() => spaces.length > 1 && setOpen(true)}
-        style={{
-          padding: 10,
-          paddingHorizontal: 14,
-          borderRadius: 12,
-          backgroundColor: palette.surface,
-          borderWidth: 1,
-          borderColor: palette.line,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <Text
-          style={{
-            fontFamily: fonts.num,
-            fontSize: 9.5,
-            color: palette.ink3,
-            letterSpacing: 0.7,
-            fontWeight: "600",
-          }}
-        >
-          SPACE
-        </Text>
-        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <View
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 999,
-              backgroundColor: active?.tint ?? palette.brand,
-            }}
-          />
-          <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13.5, fontWeight: "500", color: palette.ink1 }}>
-            {active?.name ?? "Personal"}
-          </Text>
-        </View>
-        <ChevDownIcon color={palette.ink3} />
-      </Pressable>
+      {canSwitch ? (
+        <Pressable onPress={() => setOpen(true)} style={baseStyle}>
+          {labelRow}
+        </Pressable>
+      ) : (
+        <View style={baseStyle} accessibilityLabel={`Space: ${active?.name ?? "Personal"}`}>{labelRow}</View>
+      )}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)" }} onPress={() => setOpen(false)}>

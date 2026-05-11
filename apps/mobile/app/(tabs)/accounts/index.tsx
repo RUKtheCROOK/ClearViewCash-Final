@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { RefreshControl, ScrollView, View } from "react-native";
 import { router } from "expo-router";
-import { Text } from "@cvc/ui";
 import {
   accountDisplayName,
   allocatePaymentLinks,
@@ -12,18 +11,20 @@ import {
 } from "@cvc/domain";
 import { getAccountsForView, getPlaidItemsStatus } from "@cvc/api-client";
 import type { PaymentLink } from "@cvc/types";
-import { supabase } from "../../lib/supabase";
-import { useApp } from "../../lib/store";
-import { useEffectiveSharedView } from "../../lib/view";
-import { useSpaces, acceptedMemberCount } from "../../hooks/useSpaces";
-import { useTheme } from "../../lib/theme";
-import { openPlaidLink } from "../../lib/plaid";
-import { AccountsTitleBlock } from "../../components/accounts/AccountsTitleBlock";
-import { SectionHead } from "../../components/accounts/SectionHead";
-import { AccountCard, type AccountCardData } from "../../components/accounts/AccountCard";
-import { EmptyLinksCallout } from "../../components/accounts/EmptyLinksCallout";
-import { PaymentLinkSheet } from "../../components/accounts/PaymentLinkSheet";
-import { ScopeToggle } from "../../components/dashboard/ScopeToggle";
+import { supabase } from "../../../lib/supabase";
+import { useApp } from "../../../lib/store";
+import { useEffectiveSharedView } from "../../../lib/view";
+import { useSpaces, acceptedMemberCount } from "../../../hooks/useSpaces";
+import { useTheme } from "../../../lib/theme";
+import { openPlaidLink } from "../../../lib/plaid";
+import { SectionHead } from "@cvc/ui";
+import { AccountsTitleBlock } from "../../../components/accounts/AccountsTitleBlock";
+import { AccountCard, type AccountCardData } from "../../../components/accounts/AccountCard";
+import { PaymentLinkSheet } from "../../../components/accounts/PaymentLinkSheet";
+import { ScopeToggle } from "../../../components/dashboard/ScopeToggle";
+import { SyncErrorBanner } from "../../../components/accounts/SyncErrorBanner";
+import { AccountsEmptyState } from "../../../components/accounts/EmptyState";
+import { EffectiveAvailableInfoSheet } from "../../../components/accounts/EffectiveAvailableInfoSheet";
 
 interface AccountRow {
   id: string;
@@ -79,8 +80,6 @@ function relativeAgo(iso: string | null): string | null {
 
 export default function AccountsPage() {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
-  const dismissedCallout = useApp((s) => s.dismissedAccountsLinksCallout);
-  const dismissCallout = useApp((s) => s.dismissAccountsLinksCallout);
   const { activeSpace } = useSpaces();
   const { sharedView, restrictToOwnerId, toggleVisible } = useEffectiveSharedView(activeSpace);
   const { palette } = useTheme(activeSpace?.tint);
@@ -97,6 +96,8 @@ export default function AccountsPage() {
   const [reloadCount, setReloadCount] = useState(0);
   const [linkSheetOpen, setLinkSheetOpen] = useState(false);
   const [linkSheetCardId, setLinkSheetCardId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [infoSheetOpen, setInfoSheetOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -259,12 +260,20 @@ export default function AccountsPage() {
       color: a.color ?? null,
       iconKey: a.icon ?? null,
       onPress: () =>
-        router.push({ pathname: "/settings/account/[id]", params: { id: a.id } }),
+        router.push({ pathname: "/accounts/[id]", params: { id: a.id } }),
       onReconnectPress:
         syncStatus === "error" && a.plaid_item_id
           ? () => reconnect(a.plaid_item_id!)
           : undefined,
       reconnecting: reconnectingItemId === a.plaid_item_id,
+      onEffectivePress: () => setInfoSheetOpen(true),
+      onSetUpCoverage:
+        isCredit && chips.length === 0
+          ? () => {
+              setLinkSheetCardId(a.id);
+              setLinkSheetOpen(true);
+            }
+          : undefined,
     };
   }
 
@@ -310,8 +319,46 @@ export default function AccountsPage() {
   const showScopeToggle = toggleVisible && acceptedMemberCount(activeSpace) >= 2;
   const cardCandidates = useMemo(() => rows.filter((r) => r.type === "credit"), [rows]);
   const funderCandidates = useMemo(() => rows.filter((r) => r.type === "depository"), [rows]);
-  const hasAnyLinks = linkObjs.some((l) => l.cards.length > 0);
-  const showCallout = !dismissedCallout && !hasAnyLinks && cardCandidates.length > 0 && funderCandidates.length > 0;
+
+  const erroredItems = useMemo(
+    () =>
+      Object.values(itemStatus)
+        .filter((it) => it.status === "error")
+        .map((it) => ({
+          itemRowId: it.id,
+          institutionName: it.institution_name ?? "Connected bank",
+        })),
+    [itemStatus],
+  );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const healthyItemIds = Object.values(itemStatus)
+        .filter((it) => it.status !== "error")
+        .map((it) => it.id);
+      if (session && healthyItemIds.length > 0) {
+        await Promise.all(
+          healthyItemIds.map((id) =>
+            fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/plaid-sync`, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({ plaid_item_row_id: id }),
+            }).catch(() => null),
+          ),
+        );
+      }
+      setReloadCount((n) => n + 1);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [itemStatus]);
 
   const groups = groupAccountsByType(rows);
   const groupCaption = (
@@ -327,7 +374,17 @@ export default function AccountsPage() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.canvas }}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={palette.ink2}
+            colors={[palette.brand]}
+          />
+        }
+      >
         <AccountsTitleBlock
           spaceTintHex={activeSpace?.tint}
           summary={summary}
@@ -336,6 +393,12 @@ export default function AccountsPage() {
             setLinkSheetOpen(true);
           }}
           onAddBank={() => router.push("/(onboarding)/link-bank")}
+        />
+
+        <SyncErrorBanner
+          items={erroredItems}
+          reconnectingItemId={reconnectingItemId}
+          onReconnect={reconnect}
         />
 
         {showScopeToggle ? (
@@ -362,7 +425,7 @@ export default function AccountsPage() {
 
         {groups.map(({ group, accounts }) => (
           <View key={group}>
-            <SectionHead eyebrow={group.toUpperCase()} caption={groupCaption(group, accounts.length)} />
+            <SectionHead eyebrow={group.toUpperCase()} caption={groupCaption(group, accounts.length)} palette={palette} />
             <View style={{ paddingHorizontal: 16, gap: 10 }}>
               {accounts.map((a) => (
                 <AccountCard key={a.id} {...buildCardData(a)} />
@@ -372,27 +435,23 @@ export default function AccountsPage() {
         ))}
 
         {rows.length === 0 ? (
-          <View style={{ paddingHorizontal: 16, paddingTop: 32 }}>
-            <Text style={{ color: palette.ink2 }}>
-              {sharedView
-                ? "Nothing shared into this space yet. Open an account to share it."
-                : "No accounts yet. Tap + Add bank to connect one."}
-            </Text>
-          </View>
-        ) : null}
-
-        {showCallout ? (
-          <EmptyLinksCallout
-            onSetUp={() => {
-              setLinkSheetCardId(null);
-              setLinkSheetOpen(true);
+          <AccountsEmptyState
+            variant={sharedView ? "sharedEmpty" : "fresh"}
+            spaceName={activeSpace?.name}
+            onLinkBank={() => router.push("/(onboarding)/link-bank")}
+            onSwitchToMyView={() => {
+              if (sharedView) useApp.getState().toggleView();
             }}
-            onDismiss={dismissCallout}
           />
         ) : null}
 
         <View style={{ height: 24 }} />
       </ScrollView>
+
+      <EffectiveAvailableInfoSheet
+        visible={infoSheetOpen}
+        onClose={() => setInfoSheetOpen(false)}
+      />
 
       <PaymentLinkSheet
         visible={linkSheetOpen}

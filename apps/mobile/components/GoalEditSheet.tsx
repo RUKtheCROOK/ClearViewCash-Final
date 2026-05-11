@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { fonts, type Palette, type ThemeMode } from "@cvc/ui";
 import { deleteGoal, upsertGoal } from "@cvc/api-client";
 import { requiredMonthlyPayment } from "@cvc/domain";
+import { haptics } from "../lib/haptics";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/theme";
 import { GoalIcon } from "./goals/GoalIcon";
@@ -39,9 +40,45 @@ interface Props {
   goal: EditableGoal | null;
   prefillAccount?: AccountOption | null;
   accounts: ReadonlyArray<AccountOption>;
+  shareableSpaces?: ReadonlyArray<{ id: string; name: string }>;
+  currentShares?: Set<string>;
+  onToggleShare?: (spaceId: string) => void | Promise<void>;
   onClose: () => void;
   onSaved: () => void;
 }
+
+interface FieldErrors {
+  name?: string;
+  target?: string;
+  starting?: string;
+  apr?: string;
+  targetDate?: string;
+}
+
+function isoFromOffsetMonths(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  // First day of the resulting month — clean, predictable for the picker hint.
+  d.setDate(1);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function validateIsoDate(s: string): boolean {
+  if (!s.trim()) return true; // optional
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s.trim())) return false;
+  const d = new Date(s.trim());
+  return !Number.isNaN(d.getTime());
+}
+
+const DATE_QUICK_PICKS: ReadonlyArray<{ label: string; months: number }> = [
+  { label: "3 mo", months: 3 },
+  { label: "6 mo", months: 6 },
+  { label: "1 yr", months: 12 },
+  { label: "2 yr", months: 24 },
+];
 
 interface Template {
   key: string;
@@ -98,6 +135,9 @@ export function GoalEditSheet({
   goal,
   prefillAccount,
   accounts,
+  shareableSpaces,
+  currentShares,
+  onToggleShare,
   onClose,
   onSaved,
 }: Props) {
@@ -115,46 +155,173 @@ export function GoalEditSheet({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const isEdit = !!goal;
 
+  // Snapshot of initial form state, used to detect "dirty" before discard.
+  const initialRef = useRef<string>("");
+  const currentSnapshot = useMemo(
+    () =>
+      JSON.stringify({
+        kind,
+        name: name.trim(),
+        target: target.trim(),
+        starting: starting.trim(),
+        targetDate: targetDate.trim(),
+        monthlyContribution: monthlyContribution.trim(),
+        linkedAccountId,
+        apr: apr.trim(),
+        termMonths: termMonths.trim(),
+      }),
+    [kind, name, target, starting, targetDate, monthlyContribution, linkedAccountId, apr, termMonths],
+  );
+  const isDirty = visible && currentSnapshot !== initialRef.current;
+
+  function attemptClose() {
+    if (!isDirty) {
+      onClose();
+      return;
+    }
+    Alert.alert(
+      "Discard changes?",
+      "Your edits won't be saved.",
+      [
+        { text: "Keep editing", style: "cancel" },
+        { text: "Discard", style: "destructive", onPress: onClose },
+      ],
+      { cancelable: true },
+    );
+  }
+
+  function clearFieldError(key: keyof FieldErrors) {
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function validateName() {
+    if (!name.trim()) {
+      setFieldErrors((p) => ({ ...p, name: "Give the goal a name." }));
+      return false;
+    }
+    clearFieldError("name");
+    return true;
+  }
+
+  function validateTarget() {
+    if (kind === "save") {
+      const tc = dollarsToCents(target);
+      if (tc <= 0) {
+        setFieldErrors((p) => ({ ...p, target: "Target must be greater than $0." }));
+        return false;
+      }
+    }
+    clearFieldError("target");
+    return true;
+  }
+
+  function validateApr() {
+    if (kind !== "payoff" || !apr.trim()) {
+      clearFieldError("apr");
+      return true;
+    }
+    const n = Number.parseFloat(apr);
+    if (!Number.isFinite(n) || n < 0) {
+      setFieldErrors((p) => ({ ...p, apr: "APR must be a non-negative number." }));
+      return false;
+    }
+    clearFieldError("apr");
+    return true;
+  }
+
+  function validateTargetDate() {
+    if (!validateIsoDate(targetDate)) {
+      setFieldErrors((p) => ({ ...p, targetDate: "Use YYYY-MM-DD." }));
+      return false;
+    }
+    clearFieldError("targetDate");
+    return true;
+  }
+
   useEffect(() => {
     if (!visible) return;
+    let seed: {
+      kind: GoalKind;
+      name: string;
+      target: string;
+      starting: string;
+      targetDate: string;
+      monthlyContribution: string;
+      linkedAccountId: string | null;
+      apr: string;
+      termMonths: string;
+    };
     if (goal) {
       setStep(2);
-      setKind(goal.kind);
-      setName(goal.name);
-      setTarget(centsToDollarString(goal.target_amount));
-      setStarting(centsToDollarString(goal.starting_amount));
-      setTargetDate(goal.target_date ?? "");
-      setMonthlyContribution(centsToDollarString(goal.monthly_contribution));
-      setLinkedAccountId(goal.linked_account_id);
-      setApr(aprBpsToString(goal.apr_bps));
-      setTermMonths(goal.term_months != null ? String(goal.term_months) : "");
+      seed = {
+        kind: goal.kind,
+        name: goal.name,
+        target: centsToDollarString(goal.target_amount),
+        starting: centsToDollarString(goal.starting_amount),
+        targetDate: goal.target_date ?? "",
+        monthlyContribution: centsToDollarString(goal.monthly_contribution),
+        linkedAccountId: goal.linked_account_id,
+        apr: aprBpsToString(goal.apr_bps),
+        termMonths: goal.term_months != null ? String(goal.term_months) : "",
+      };
     } else if (prefillAccount) {
       setStep(2);
-      setKind("payoff");
-      setName(`Pay off ${prefillAccount.name}`);
-      setTarget("0");
-      setStarting(centsToDollarString(Math.abs(prefillAccount.current_balance ?? 0)));
-      setTargetDate("");
-      setMonthlyContribution("");
-      setLinkedAccountId(prefillAccount.id);
-      setApr("");
-      setTermMonths("");
+      seed = {
+        kind: "payoff",
+        name: `Pay off ${prefillAccount.name}`,
+        target: "0",
+        starting: centsToDollarString(Math.abs(prefillAccount.current_balance ?? 0)),
+        targetDate: "",
+        monthlyContribution: "",
+        linkedAccountId: prefillAccount.id,
+        apr: "",
+        termMonths: "",
+      };
     } else {
       setStep(1);
-      setKind("save");
-      setName("");
-      setTarget("");
-      setStarting("");
-      setTargetDate("");
-      setMonthlyContribution("");
-      setLinkedAccountId(null);
-      setApr("");
-      setTermMonths("");
+      seed = {
+        kind: "save",
+        name: "",
+        target: "",
+        starting: "",
+        targetDate: "",
+        monthlyContribution: "",
+        linkedAccountId: null,
+        apr: "",
+        termMonths: "",
+      };
     }
+    setKind(seed.kind);
+    setName(seed.name);
+    setTarget(seed.target);
+    setStarting(seed.starting);
+    setTargetDate(seed.targetDate);
+    setMonthlyContribution(seed.monthlyContribution);
+    setLinkedAccountId(seed.linkedAccountId);
+    setApr(seed.apr);
+    setTermMonths(seed.termMonths);
     setError(null);
+    setFieldErrors({});
+    initialRef.current = JSON.stringify({
+      kind: seed.kind,
+      name: seed.name.trim(),
+      target: seed.target.trim(),
+      starting: seed.starting.trim(),
+      targetDate: seed.targetDate.trim(),
+      monthlyContribution: seed.monthlyContribution.trim(),
+      linkedAccountId: seed.linkedAccountId,
+      apr: seed.apr.trim(),
+      termMonths: seed.termMonths.trim(),
+    });
   }, [visible, goal, prefillAccount]);
 
   const debtAccounts = useMemo(
@@ -225,22 +392,18 @@ export function GoalEditSheet({
       setError("Switch to a space first.");
       return;
     }
-    if (!name.trim()) {
-      setError("Give the goal a name.");
+    const nameOk = validateName();
+    const targetOk = validateTarget();
+    const aprOk = validateApr();
+    const dateOk = validateTargetDate();
+    if (!nameOk || !targetOk || !aprOk || !dateOk) {
+      setError(null); // field-level errors carry the message
       return;
     }
     const targetC = dollarsToCents(target);
-    if (kind === "save" && targetC <= 0) {
-      setError("Target amount must be greater than 0.");
-      return;
-    }
     let aprBps: number | null = null;
     if (kind === "payoff" && apr.trim()) {
       const aprPct = Number.parseFloat(apr);
-      if (!Number.isFinite(aprPct) || aprPct < 0) {
-        setError("APR must be a non-negative number.");
-        return;
-      }
       aprBps = Math.round(aprPct * 100);
     }
     let term: number | null = null;
@@ -274,6 +437,9 @@ export function GoalEditSheet({
         apr_bps: aprBps,
         term_months: term,
       });
+      // Mark snapshot as clean so the post-save close doesn't prompt for discard.
+      initialRef.current = currentSnapshot;
+      haptics.success();
       onSaved();
       onClose();
     } catch (e) {
@@ -289,6 +455,8 @@ export function GoalEditSheet({
     setError(null);
     try {
       await deleteGoal(supabase, goal.id);
+      initialRef.current = currentSnapshot;
+      haptics.warning();
       onSaved();
       onClose();
     } catch (e) {
@@ -299,9 +467,9 @@ export function GoalEditSheet({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={attemptClose}>
       <Pressable
-        onPress={onClose}
+        onPress={attemptClose}
         style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
       >
         <Pressable
@@ -313,6 +481,9 @@ export function GoalEditSheet({
             maxHeight: "92%",
           }}
         >
+          <View style={{ alignItems: "center", paddingTop: 8, paddingBottom: 2 }}>
+            <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: palette.lineFirm }} />
+          </View>
           {/* Top nav */}
           <View
             style={{
@@ -325,7 +496,7 @@ export function GoalEditSheet({
             }}
           >
             <Pressable
-              onPress={() => (step === 1 || isEdit ? onClose() : setStep(1))}
+              onPress={() => (step === 1 || isEdit ? attemptClose() : setStep(1))}
               style={{
                 width: 36,
                 height: 36,
@@ -338,8 +509,8 @@ export function GoalEditSheet({
               {step === 1 || isEdit ? <CloseIcon color={palette.ink2} /> : <BackIcon color={palette.ink2} />}
             </Pressable>
             <View style={{ flex: 1, alignItems: "center" }}>
-              <Text style={{ fontFamily: fonts.num, fontSize: 10, color: palette.ink3, letterSpacing: 0.7 }}>
-                {isEdit ? "EDIT" : `STEP ${step} OF 2`}
+              <Text style={{ fontFamily: fonts.ui, fontSize: 11, color: palette.ink3 }}>
+                {isEdit ? "Edit goal" : `Step ${step} of 2`}
               </Text>
               <Text style={{ fontFamily: fonts.uiMedium, fontSize: 14, fontWeight: "500", color: palette.ink1 }}>
                 {isEdit ? "Goal" : "New goal"}
@@ -388,10 +559,27 @@ export function GoalEditSheet({
                 previewMonthly={previewMonthlyCents}
                 monthsToTarget={monthsToTarget}
                 branding={branding}
-                onName={setName}
-                onTarget={setTarget}
-                onTargetDate={setTargetDate}
+                fieldErrors={fieldErrors}
+                shareableSpaces={shareableSpaces}
+                currentShares={currentShares}
+                showShareField={isEdit}
+                onName={(v) => {
+                  setName(v);
+                  if (fieldErrors.name) clearFieldError("name");
+                }}
+                onTarget={(v) => {
+                  setTarget(v);
+                  if (fieldErrors.target) clearFieldError("target");
+                }}
+                onTargetDate={(v) => {
+                  setTargetDate(v);
+                  if (fieldErrors.targetDate) clearFieldError("targetDate");
+                }}
                 onLink={setLinkedAccountId}
+                onValidateName={validateName}
+                onValidateTarget={validateTarget}
+                onValidateTargetDate={validateTargetDate}
+                onToggleShare={onToggleShare}
               />
             ) : (
               <Step2Debt
@@ -407,12 +595,33 @@ export function GoalEditSheet({
                 previewMonthly={previewMonthlyCents}
                 interestSplit={interestSplit}
                 monthsToTarget={monthsToTarget}
-                onName={setName}
-                onTarget={setTarget}
+                fieldErrors={fieldErrors}
+                shareableSpaces={shareableSpaces}
+                currentShares={currentShares}
+                showShareField={isEdit}
+                onName={(v) => {
+                  setName(v);
+                  if (fieldErrors.name) clearFieldError("name");
+                }}
+                onTarget={(v) => {
+                  setTarget(v);
+                  if (fieldErrors.target) clearFieldError("target");
+                }}
                 onStarting={setStarting}
-                onApr={setApr}
-                onTargetDate={setTargetDate}
+                onApr={(v) => {
+                  setApr(v);
+                  if (fieldErrors.apr) clearFieldError("apr");
+                }}
+                onTargetDate={(v) => {
+                  setTargetDate(v);
+                  if (fieldErrors.targetDate) clearFieldError("targetDate");
+                }}
                 onPickAccount={pickDebt}
+                onValidateName={validateName}
+                onValidateTarget={validateTarget}
+                onValidateApr={validateApr}
+                onValidateTargetDate={validateTargetDate}
+                onToggleShare={onToggleShare}
               />
             )}
 
@@ -526,14 +735,13 @@ function Step1({ palette, mode, kind, onPickKind, onPickTemplate }: Step1Props) 
         style={{
           marginTop: 24,
           marginBottom: 8,
-          fontFamily: fonts.uiSemibold ?? fonts.uiMedium,
-          fontSize: 11.5,
-          fontWeight: "600",
+          fontFamily: fonts.uiMedium,
+          fontSize: 13,
+          fontWeight: "500",
           color: palette.ink2,
-          letterSpacing: 0.7,
         }}
       >
-        COMMON STARTS
+        Common starts
       </Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {TEMPLATES.map((tem) => (
@@ -634,10 +842,18 @@ interface Step2SavingsProps {
   previewMonthly: number | null;
   monthsToTarget: number | null;
   branding: { glyph: GoalGlyphKey; hue: number };
+  fieldErrors: FieldErrors;
+  shareableSpaces?: ReadonlyArray<{ id: string; name: string }>;
+  currentShares?: Set<string>;
+  showShareField: boolean;
   onName: (v: string) => void;
   onTarget: (v: string) => void;
   onTargetDate: (v: string) => void;
   onLink: (id: string | null) => void;
+  onValidateName: () => void;
+  onValidateTarget: () => void;
+  onValidateTargetDate: () => void;
+  onToggleShare?: (spaceId: string) => void;
 }
 
 function Step2Savings({
@@ -651,10 +867,18 @@ function Step2Savings({
   previewMonthly,
   monthsToTarget,
   branding,
+  fieldErrors,
+  shareableSpaces,
+  currentShares,
+  showShareField,
   onName,
   onTarget,
   onTargetDate,
   onLink,
+  onValidateName,
+  onValidateTarget,
+  onValidateTargetDate,
+  onToggleShare,
 }: Step2SavingsProps) {
   const linked = savingsAccounts.find((a) => a.id === linkedAccountId) ?? null;
   return (
@@ -672,17 +896,18 @@ function Step2Savings({
       </View>
 
       <View style={{ gap: 14 }}>
-        <Field palette={palette} label="NAME">
+        <Field palette={palette} label="Name" error={fieldErrors.name}>
           <TextInput
             value={name}
             onChangeText={onName}
+            onBlur={onValidateName}
             placeholder="Custom guitar"
             placeholderTextColor={palette.ink4}
             style={inputStyle(palette)}
           />
         </Field>
 
-        <Field palette={palette} label="TARGET AMOUNT">
+        <Field palette={palette} label="Target" error={fieldErrors.target}>
           <View
             style={{
               flexDirection: "row",
@@ -699,6 +924,7 @@ function Step2Savings({
             <TextInput
               value={target}
               onChangeText={(v) => onTarget(v.replace(/[^0-9.,]/g, ""))}
+              onBlur={onValidateTarget}
               keyboardType="decimal-pad"
               placeholder="0"
               placeholderTextColor={palette.ink4}
@@ -716,19 +942,61 @@ function Step2Savings({
           </View>
         </Field>
 
-        <Field palette={palette} label="TARGET DATE" sub={monthsToTarget != null && monthsToTarget > 0 ? `· ${monthsToTarget} month${monthsToTarget === 1 ? "" : "s"} out` : "YYYY-MM-DD"}>
+        <Field
+          palette={palette}
+          label="Target date"
+          sub={
+            monthsToTarget != null && monthsToTarget > 0
+              ? `${monthsToTarget} month${monthsToTarget === 1 ? "" : "s"} from now`
+              : "Pick a quick option or type a date."
+          }
+          error={fieldErrors.targetDate}
+        >
+          <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+            {DATE_QUICK_PICKS.map((p) => {
+              const iso = isoFromOffsetMonths(p.months);
+              const active = targetDate === iso;
+              return (
+                <Pressable
+                  key={p.months}
+                  onPress={() => onTargetDate(iso)}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 999,
+                    backgroundColor: active ? palette.brand : palette.surface,
+                    borderWidth: 1,
+                    borderColor: active ? palette.brand : palette.line,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: fonts.uiMedium,
+                      fontSize: 12,
+                      fontWeight: "500",
+                      color: active ? palette.brandOn : palette.ink2,
+                    }}
+                  >
+                    {p.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <TextInput
             value={targetDate}
             onChangeText={onTargetDate}
+            onBlur={onValidateTargetDate}
             placeholder="2026-09-01"
             placeholderTextColor={palette.ink4}
             autoCapitalize="none"
+            keyboardType="numbers-and-punctuation"
             style={{ ...inputStyle(palette), height: 52 }}
           />
         </Field>
 
         {savingsAccounts.length > 0 ? (
-          <Field palette={palette} label="TRACK FROM (OPTIONAL)" sub="Link a savings account and we'll show progress against it.">
+          <Field palette={palette} label="Link a savings account" sub="Optional — we'll show progress against the linked balance.">
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <Chip
@@ -770,6 +1038,15 @@ function Step2Savings({
             </Text>
           </View>
         ) : null}
+
+        {showShareField && shareableSpaces && shareableSpaces.length > 0 ? (
+          <ShareField
+            palette={palette}
+            shareableSpaces={shareableSpaces}
+            currentShares={currentShares}
+            onToggleShare={onToggleShare}
+          />
+        ) : null}
       </View>
     </View>
   );
@@ -788,12 +1065,21 @@ interface Step2DebtProps {
   previewMonthly: number | null;
   interestSplit: { interest: number; principal: number } | null;
   monthsToTarget: number | null;
+  fieldErrors: FieldErrors;
+  shareableSpaces?: ReadonlyArray<{ id: string; name: string }>;
+  currentShares?: Set<string>;
+  showShareField: boolean;
   onName: (v: string) => void;
   onTarget: (v: string) => void;
   onStarting: (v: string) => void;
   onApr: (v: string) => void;
   onTargetDate: (v: string) => void;
   onPickAccount: (a: AccountOption) => void;
+  onValidateName: () => void;
+  onValidateTarget: () => void;
+  onValidateApr: () => void;
+  onValidateTargetDate: () => void;
+  onToggleShare?: (spaceId: string) => void;
 }
 
 function Step2Debt({
@@ -809,12 +1095,21 @@ function Step2Debt({
   previewMonthly,
   interestSplit,
   monthsToTarget,
+  fieldErrors,
+  shareableSpaces,
+  currentShares,
+  showShareField,
   onName,
   onTarget,
   onStarting,
   onApr,
   onTargetDate,
   onPickAccount,
+  onValidateName,
+  onValidateTarget,
+  onValidateApr,
+  onValidateTargetDate,
+  onToggleShare,
 }: Step2DebtProps) {
   return (
     <View>
@@ -907,10 +1202,11 @@ function Step2Debt({
       ) : null}
 
       <View style={{ gap: 14 }}>
-        <Field palette={palette} label="NAME">
+        <Field palette={palette} label="Name" error={fieldErrors.name}>
           <TextInput
             value={name}
             onChangeText={onName}
+            onBlur={onValidateName}
             placeholder="Pay off Citi card"
             placeholderTextColor={palette.ink4}
             style={inputStyle(palette)}
@@ -918,7 +1214,7 @@ function Step2Debt({
         </Field>
         <View style={{ flexDirection: "row", gap: 10 }}>
           <View style={{ flex: 1 }}>
-            <Field palette={palette} label="STARTING">
+            <Field palette={palette} label="Starting balance">
               <TextInput
                 value={starting}
                 onChangeText={(v) => onStarting(v.replace(/[^0-9.,]/g, ""))}
@@ -930,10 +1226,16 @@ function Step2Debt({
             </Field>
           </View>
           <View style={{ flex: 1 }}>
-            <Field palette={palette} label="APR %">
+            <Field
+              palette={palette}
+              label="APR %"
+              sub={apr.trim() ? undefined : "Add APR for an accurate payoff projection."}
+              error={fieldErrors.apr}
+            >
               <TextInput
                 value={apr}
                 onChangeText={(v) => onApr(v.replace(/[^0-9.]/g, ""))}
+                onBlur={onValidateApr}
                 keyboardType="decimal-pad"
                 placeholder="21.49"
                 placeholderTextColor={palette.ink4}
@@ -942,23 +1244,66 @@ function Step2Debt({
             </Field>
           </View>
         </View>
-        <Field palette={palette} label="TARGET BALANCE" sub="Usually 0 — leave as 0 to fully pay off.">
+        <Field palette={palette} label="Target balance" sub="Usually 0 — leave as 0 to fully pay off." error={fieldErrors.target}>
           <TextInput
             value={target}
             onChangeText={(v) => onTarget(v.replace(/[^0-9.,]/g, ""))}
+            onBlur={onValidateTarget}
             keyboardType="decimal-pad"
             placeholder="0"
             placeholderTextColor={palette.ink4}
             style={inputStyle(palette)}
           />
         </Field>
-        <Field palette={palette} label="PAYOFF BY" sub={monthsToTarget != null && monthsToTarget > 0 ? `· ${monthsToTarget} month${monthsToTarget === 1 ? "" : "s"}` : "YYYY-MM-DD"}>
+        <Field
+          palette={palette}
+          label="Payoff by"
+          sub={
+            monthsToTarget != null && monthsToTarget > 0
+              ? `${monthsToTarget} month${monthsToTarget === 1 ? "" : "s"} from now`
+              : "Pick a quick option or type a date."
+          }
+          error={fieldErrors.targetDate}
+        >
+          <View style={{ flexDirection: "row", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+            {DATE_QUICK_PICKS.map((p) => {
+              const iso = isoFromOffsetMonths(p.months);
+              const active = targetDate === iso;
+              return (
+                <Pressable
+                  key={p.months}
+                  onPress={() => onTargetDate(iso)}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 999,
+                    backgroundColor: active ? palette.brand : palette.surface,
+                    borderWidth: 1,
+                    borderColor: active ? palette.brand : palette.line,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: fonts.uiMedium,
+                      fontSize: 12,
+                      fontWeight: "500",
+                      color: active ? palette.brandOn : palette.ink2,
+                    }}
+                  >
+                    {p.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <TextInput
             value={targetDate}
             onChangeText={onTargetDate}
+            onBlur={onValidateTargetDate}
             placeholder="2026-03-01"
             placeholderTextColor={palette.ink4}
             autoCapitalize="none"
+            keyboardType="numbers-and-punctuation"
             style={{ ...inputStyle(palette), height: 52 }}
           />
         </Field>
@@ -973,8 +1318,8 @@ function Step2Debt({
               borderColor: palette.brandTint,
             }}
           >
-            <Text style={{ fontFamily: fonts.num, fontSize: 10, color: palette.brand, letterSpacing: 0.7, fontWeight: "600" }}>
-              YOU&apos;LL PAY
+            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 11, color: palette.brand, fontWeight: "600" }}>
+              You&apos;ll pay
             </Text>
             <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6, marginTop: 6 }}>
               <Num style={{ fontSize: 30, fontWeight: "600", color: palette.ink1, letterSpacing: -0.6 }}>
@@ -993,8 +1338,71 @@ function Step2Debt({
             ) : null}
           </View>
         ) : null}
+
+        {showShareField && shareableSpaces && shareableSpaces.length > 0 ? (
+          <ShareField
+            palette={palette}
+            shareableSpaces={shareableSpaces}
+            currentShares={currentShares}
+            onToggleShare={onToggleShare}
+          />
+        ) : null}
       </View>
     </View>
+  );
+}
+
+function ShareField({
+  palette,
+  shareableSpaces,
+  currentShares,
+  onToggleShare,
+}: {
+  palette: Palette;
+  shareableSpaces: ReadonlyArray<{ id: string; name: string }>;
+  currentShares?: Set<string>;
+  onToggleShare?: (spaceId: string) => void;
+}) {
+  return (
+    <Field
+      palette={palette}
+      label="Share with"
+      sub="Tap a space to share this goal with it. Members can see progress but only you can edit."
+    >
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {shareableSpaces.map((s) => {
+          const on = currentShares?.has(s.id) ?? false;
+          return (
+            <Pressable
+              key={s.id}
+              onPress={() => {
+                haptics.selection();
+                onToggleShare?.(s.id);
+              }}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                backgroundColor: on ? palette.brand : palette.surface,
+                borderWidth: 1,
+                borderColor: on ? palette.brand : palette.line,
+              }}
+            >
+              <Text
+                style={{
+                  fontFamily: fonts.uiMedium,
+                  fontSize: 12,
+                  fontWeight: "500",
+                  color: on ? palette.brandOn : palette.ink2,
+                }}
+              >
+                {s.name}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </Field>
   );
 }
 
@@ -1002,29 +1410,34 @@ function Field({
   palette,
   label,
   sub,
+  error,
   children,
 }: {
   palette: Palette;
   label: string;
   sub?: string;
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
     <View>
       <Text
         style={{
-          fontFamily: fonts.num,
-          fontSize: 10,
-          fontWeight: "600",
-          color: palette.ink3,
-          letterSpacing: 0.7,
+          fontFamily: fonts.uiMedium,
+          fontSize: 12,
+          fontWeight: "500",
+          color: palette.ink2,
           marginBottom: 6,
         }}
       >
         {label}
       </Text>
       {children}
-      {sub ? (
+      {error ? (
+        <Text style={{ marginTop: 6, fontFamily: fonts.ui, fontSize: 11.5, color: palette.warn, lineHeight: 16 }}>
+          {error}
+        </Text>
+      ) : sub ? (
         <Text style={{ marginTop: 6, fontFamily: fonts.ui, fontSize: 11, color: palette.ink3, lineHeight: 16 }}>
           {sub}
         </Text>

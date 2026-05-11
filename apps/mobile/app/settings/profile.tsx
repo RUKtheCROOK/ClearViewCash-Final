@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
-import { fonts } from "@cvc/ui";
+import { fonts, SheetHeader } from "@cvc/ui";
 import { supabase } from "../../lib/supabase";
 import { useTheme } from "../../lib/theme";
+import { useDirtyGuard } from "../../hooks/useDirtyGuard";
 import { Group, PageHeader, Row, SectionLabel } from "../../components/settings/SettingsAtoms";
 
 export default function Profile() {
@@ -13,6 +14,13 @@ export default function Profile() {
   const [editOpen, setEditOpen] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const isDirty = editOpen && editValue.trim() !== name.trim();
+  const { confirmDiscard } = useDirtyGuard(isDirty);
+
+  function closeEdit() {
+    confirmDiscard(() => setEditOpen(false));
+  }
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? ""));
@@ -87,39 +95,45 @@ export default function Profile() {
         </Group>
       </ScrollView>
 
-      <Modal visible={editOpen} transparent animationType="fade" onRequestClose={() => setEditOpen(false)}>
-        <Pressable onPress={() => setEditOpen(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", padding: 24 }}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: palette.surface, borderRadius: 18, padding: 18, gap: 12 }}>
-            <Text style={{ fontFamily: fonts.uiMedium, fontSize: 18, fontWeight: "500", color: palette.ink1 }}>Display name</Text>
-            <TextInput
-              value={editValue}
-              onChangeText={setEditValue}
-              autoFocus
-              placeholder="Your name"
-              placeholderTextColor={palette.ink4}
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-                borderRadius: 10,
-                backgroundColor: palette.surface,
-                borderWidth: 1,
-                borderColor: palette.line,
-                fontFamily: fonts.ui,
-                fontSize: 14,
-                color: palette.ink1,
-              }}
+      <Modal visible={editOpen} transparent animationType="fade" onRequestClose={closeEdit}>
+        <Pressable onPress={closeEdit} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}>
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: palette.surface,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              paddingBottom: 24,
+            }}
+          >
+            <SheetHeader
+              palette={palette}
+              title="Display name"
+              onClose={closeEdit}
+              onSave={saveName}
+              saveDisabled={!editValue.trim() || editValue.trim() === name.trim()}
+              saveBusy={busy}
+              withGrabHandle
             />
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <Pressable onPress={() => setEditOpen(false)} style={{ flex: 1, height: 42, borderRadius: 10, borderWidth: 1, borderColor: palette.lineFirm, alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.ink2 }}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={saveName}
-                disabled={busy || !editValue.trim()}
-                style={{ flex: 1, height: 42, borderRadius: 10, backgroundColor: palette.brand, alignItems: "center", justifyContent: "center", opacity: busy || !editValue.trim() ? 0.5 : 1 }}
-              >
-                <Text style={{ fontFamily: fonts.uiMedium, fontSize: 13, fontWeight: "500", color: palette.brandOn }}>{busy ? "Saving…" : "Save"}</Text>
-              </Pressable>
+            <View style={{ paddingHorizontal: 18, paddingTop: 4, gap: 12 }}>
+              <TextInput
+                value={editValue}
+                onChangeText={setEditValue}
+                autoFocus
+                placeholder="Your name"
+                placeholderTextColor={palette.ink4}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  backgroundColor: palette.surface,
+                  borderWidth: 1,
+                  borderColor: palette.line,
+                  fontFamily: fonts.ui,
+                  fontSize: 14,
+                  color: palette.ink1,
+                }}
+              />
             </View>
           </Pressable>
         </Pressable>

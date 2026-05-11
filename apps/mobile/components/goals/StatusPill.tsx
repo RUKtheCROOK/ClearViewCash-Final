@@ -9,8 +9,29 @@ const labels: Record<GoalStatus, string> = {
   ahead: "Ahead",
   behind: "Behind pace",
   done: "Reached",
-  stalled: "Needs a plan",
+  stalled: "Set the pace",
 };
+
+export interface StatusTone {
+  fg: string;
+  bg: string;
+}
+
+export function statusTone(palette: Palette, status: GoalStatus): StatusTone {
+  switch (status) {
+    case "ahead":
+      return { bg: palette.posTint, fg: palette.pos };
+    case "behind":
+      return { bg: palette.accentTint, fg: palette.accent };
+    case "done":
+      return { bg: palette.posTint, fg: palette.pos };
+    case "stalled":
+      return { bg: palette.tinted, fg: palette.ink3 };
+    case "track":
+    default:
+      return { bg: palette.brandTint, fg: palette.brand };
+  }
+}
 
 interface Props {
   palette: Palette;
@@ -18,14 +39,7 @@ interface Props {
 }
 
 export function StatusPill({ palette, status }: Props) {
-  const colors: Record<GoalStatus, { bg: string; fg: string }> = {
-    track: { bg: palette.brandTint, fg: palette.brand },
-    ahead: { bg: palette.posTint, fg: palette.pos },
-    behind: { bg: palette.accentTint, fg: palette.accent },
-    done: { bg: palette.posTint, fg: palette.pos },
-    stalled: { bg: palette.tinted, fg: palette.ink3 },
-  };
-  const c = colors[status];
+  const c = statusTone(palette, status);
   return (
     <View
       style={{

@@ -2,6 +2,7 @@ import { Pressable, Text as RNText, View } from "react-native";
 import { Avatar, CategoryChip, I, TxNum, categoryTint, fonts, type Palette, type ThemeMode } from "@cvc/ui";
 import { displayMerchantName, resolveTxCategory } from "@cvc/domain";
 import type { ActivityTxn } from "../../lib/activity-types";
+import { haptics } from "../../lib/haptics";
 
 interface Props {
   tx: ActivityTxn;
@@ -23,11 +24,16 @@ export function TxRow({ tx, palette, mode, accountName, sharedInitial, splitFlag
 
   return (
     <Pressable
-      onPress={onTap}
-      onLongPress={onLongPress}
-      delayLongPress={350}
+      onPress={() => {
+        haptics.light();
+        onTap();
+      }}
+      onLongPress={() => {
+        haptics.medium();
+        onLongPress();
+      }}
+      delayLongPress={500}
       style={{
-        position: "relative",
         flexDirection: "row",
         alignItems: "center",
         gap: 12,
@@ -38,31 +44,6 @@ export function TxRow({ tx, palette, mode, accountName, sharedInitial, splitFlag
         borderBottomColor: palette.line,
       }}
     >
-      {isPending ? (
-        <View
-          style={{
-            position: "absolute",
-            left: 4,
-            top: 8,
-            bottom: 8,
-            width: 2,
-            backgroundColor: "transparent",
-          }}
-        >
-          {Array.from({ length: 18 }).map((_, i) => (
-            <View
-              key={i}
-              style={{
-                width: 2,
-                height: 3,
-                marginBottom: 3,
-                backgroundColor: palette.ink4,
-              }}
-            />
-          ))}
-        </View>
-      ) : null}
-
       <CategoryChip kind={cat.kind} mode={mode} />
 
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -157,6 +138,24 @@ export function TxRow({ tx, palette, mode, accountName, sharedInitial, splitFlag
         centsColor={isPending ? palette.ink4 : palette.ink3}
         italic={isPending}
       />
+
+      <Pressable
+        onPress={() => {
+          haptics.medium();
+          onLongPress();
+        }}
+        hitSlop={8}
+        accessibilityLabel="More actions"
+        style={{
+          width: 24,
+          height: 24,
+          marginLeft: 4,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <I.more color={palette.ink3} />
+      </Pressable>
     </Pressable>
   );
 }
